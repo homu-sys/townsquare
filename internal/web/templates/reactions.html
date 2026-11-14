@@ -1,0 +1,40 @@
+{{define "reaction_bar"}}
+<div class="reactions">
+{{range .Items}}
+{{if $.LoggedIn}}<form method="post" action="/reactions" class="inline reaction-form">
+{{template "csrf" $}}
+<input type="hidden" name="target_type" value="{{$.TargetType}}">
+<input type="hidden" name="target_id" value="{{$.TargetID}}">
+<input type="hidden" name="emoji" value="{{.Emoji}}">
+<input type="hidden" name="next" value="{{$.Next}}">
+<button type="submit" class="reaction{{if .Reacted}} reacted{{end}}" title="{{if .Reacted}}Remove{{else}}Add{{end}} {{.Emoji}}">{{.Emoji}} <span class="reaction-count">{{.Count}}</span></button>
+</form>{{else}}<span class="reaction" title="{{.Emoji}}">{{.Emoji}} <span class="reaction-count">{{.Count}}</span></span>{{end}}
+{{end}}
+{{if .LoggedIn}}
+<details class="emoji-picker reaction-picker">
+<summary>+ reaction</summary>
+<div class="emoji-menu">
+{{range emojiPalette}}
+<form method="post" action="/reactions" class="inline">
+{{template "csrf" $}}
+<input type="hidden" name="target_type" value="{{$.TargetType}}">
+<input type="hidden" name="target_id" value="{{$.TargetID}}">
+<input type="hidden" name="emoji" value="{{.}}">
+<input type="hidden" name="next" value="{{$.Next}}">
+<button type="submit" class="emoji-choice" title="React with {{.}}">{{.}}</button>
+</form>
+{{end}}
+</div>
+</details>
+{{end}}
+</div>
+{{end}}
+
+{{define "emoji_picker"}}
+<details class="emoji-picker text-emoji-picker">
+<summary>Emoji</summary>
+<div class="emoji-menu">
+{{range emojiPalette}}<button type="button" class="emoji-choice" data-emoji="{{.}}">{{.}}</button>{{end}}
+</div>
+</details>
+{{end}}

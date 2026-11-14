@@ -1,0 +1,13 @@
+{{template "header" .}}
+<h2>18+ warning</h2>
+<p>This area may contain adult content or graphic material. It is hidden from the front page, tags, public API, and RSS feeds.</p>
+<p>By continuing, you confirm that you are at least 18 years old and that viewing this material is legal where you live.</p>
+<form method="post" action="/nsfw/confirm" class="stack">
+{{template "csrf" .}}
+<input type="hidden" name="next" value="{{.AdultNext}}">
+<div class="form-actions">
+  <button type="submit" class="button">I am 18 or older, continue</button>
+  <a href="/">Take me back</a>
+</div>
+</form>
+{{template "footer" .}}

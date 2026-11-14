@@ -1,0 +1,29 @@
+{{template "header" .}}
+<h2>Blocked messages</h2>
+{{template "admin_nav" .}}
+
+<p class="small">These direct messages were not delivered because they matched a blocked term.</p>
+{{if .BlockedDMs}}
+<table class="users">
+  <tr><th>From</th><th>To</th><th>When</th><th>Matched</th><th>Message</th><th></th></tr>
+  {{range .BlockedDMs}}
+  <tr>
+    <td><a href="/users/{{.SenderUsername}}">{{.SenderUsername}}</a></td>
+    <td><a href="/users/{{.RecipientUsername}}">{{.RecipientUsername}}</a></td>
+    <td class="date">{{fdate .CreatedAt}}</td>
+    <td class="small">{{.BlockReason}}</td>
+    <td class="small"><pre class="dm-quoted">{{.BodyMD}}</pre></td>
+    <td>
+      <form method="post" action="/admin/dms/{{.ID}}/delete" class="inline">
+      {{template "csrf" $}}
+      <button type="submit" class="link danger">delete</button>
+      </form>
+    </td>
+  </tr>
+  {{end}}
+</table>
+{{template "pager" .}}
+{{else}}
+<p class="empty">No blocked messages.</p>
+{{end}}
+{{template "footer" .}}

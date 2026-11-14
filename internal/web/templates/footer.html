@@ -1,0 +1,48 @@
+{{define "csrf"}}<input type="hidden" name="_csrf" value="{{.CSRFToken}}">{{end}}
+
+{{define "footer"}}
+</main>
+<footer class="footer">
+  <hr>
+  <div class="counter">You are visitor <span class="digits">{{.Hits}}</span> to this town.</div>
+  <div class="footer-links">
+    <a href="/about">about</a> |
+    <a href="/users">people</a> |
+    <a href="/channels">channels</a> |
+    <a href="/api/v1/site">public api</a> |
+    <a href="/feed.xml">rss</a> |
+    <a href="/admin">admin</a>
+  </div>
+  <div class="fineprint">&copy; 2026 {{.SiteName}}. Handmade with Go. Best viewed at 800x600.</div>
+</footer>
+</div>
+</body>
+</html>
+{{end}}
+
+{{define "pager"}}
+{{if or .Prev .Next}}
+<div class="pager">
+  {{if .Prev}}<a href="{{.Prev}}">&lt;&lt; newer</a>{{end}}
+  {{if .Next}}<a href="{{.Next}}">older &gt;&gt;</a>{{end}}
+</div>
+{{end}}
+{{end}}
+
+{{define "channel_nav"}}
+<p class="small">{{range .Channels}}{{if eq $.Channel .Slug}}<strong>[ {{.Name}} ]</strong>{{else}}<a href="/c/{{.Slug}}">[ {{.Name}} ]</a>{{end}} {{end}}</p>
+{{end}}
+
+{{define "post_table"}}
+<table class="posts">
+  <tr><th>Subject</th><th>Author</th><th class="num">Replies</th><th>Posted</th></tr>
+  {{range .Posts}}
+  <tr>
+    <td><a href="/posts/{{.ID}}">{{.Title}}</a>{{if ne .Channel "general"}} <span class="tag">{{.Channel}}</span>{{end}}</td>
+    <td><a href="/users/{{.AuthorUsername}}">{{.AuthorDisplayName}}</a>{{if eq .AuthorRole "admin"}} <span class="tag">admin</span>{{end}}</td>
+    <td class="num">{{.CommentCount}}</td>
+    <td class="date">{{fdate .CreatedAt}}</td>
+  </tr>
+  {{end}}
+</table>
+{{end}}

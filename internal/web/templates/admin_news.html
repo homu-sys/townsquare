@@ -1,0 +1,40 @@
+{{template "header" .}}
+<h2>News ticker</h2>
+{{template "admin_nav" .}}
+
+<p class="small">These lines scroll across the front page. When there are none, the site tagline is shown instead.</p>
+
+<h3>Add a news line</h3>
+<form method="post" action="/admin/news" class="inline-form">
+{{template "csrf" .}}
+<input type="text" name="body" maxlength="280" required placeholder="e.g. Town hall this Friday at 8pm">
+<button type="submit" class="button">Add</button>
+</form>
+
+<h3>Current news</h3>
+{{if .News}}
+<table class="news">
+  <tr><th>Line</th><th>Added</th><th></th></tr>
+  {{range .News}}
+  <tr>
+    <td>
+      <form method="post" action="/admin/news/{{.ID}}/edit" class="inline-form">
+      {{template "csrf" $}}
+      <input type="text" name="body" value="{{.Body}}" maxlength="280" required>
+      <button type="submit" class="link">save</button>
+      </form>
+    </td>
+    <td class="date">{{fday .CreatedAt}}</td>
+    <td>
+      <form method="post" action="/admin/news/{{.ID}}/delete" class="inline">
+      {{template "csrf" $}}
+      <button type="submit" class="link danger">delete</button>
+      </form>
+    </td>
+  </tr>
+  {{end}}
+</table>
+{{else}}
+<p class="empty">No news lines yet. The front page will show the site tagline.</p>
+{{end}}
+{{template "footer" .}}

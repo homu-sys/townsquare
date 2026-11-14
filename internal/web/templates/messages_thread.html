@@ -1,0 +1,28 @@
+{{template "header" .}}
+<h2>Messages with {{.Peer.DisplayName}}</h2>
+<p class="small"><a href="/users/{{.Peer.Username}}">@{{.Peer.Username}}</a> | <a href="/messages">All messages</a></p>
+{{if .Messages}}
+<div class="dm-thread">
+{{range .Messages}}
+  <div class="dm {{if eq .SenderID $.User.ID}}dm-out{{else}}dm-in{{end}}">
+    <div class="dm-head">
+      <a href="/users/{{.SenderUsername}}">{{.SenderDisplayName}}</a>
+      <span class="date">{{fdate .CreatedAt}}</span>
+    </div>
+    <div class="dm-body">{{safeHTML .BodyHTML}}</div>
+    {{template "reaction_bar" .Reactions}}
+  </div>
+{{end}}
+</div>
+{{else}}
+<p class="empty">No messages yet. Say hello.</p>
+{{end}}
+<form method="post" action="/messages/{{.Peer.Username}}" class="stack dm-form">
+{{template "csrf" .}}
+<label>Message<br>
+<textarea name="body" rows="5" required>{{index .Form "body"}}</textarea></label>
+{{template "emoji_picker" .}}
+<button type="submit" class="button">Send message</button>
+</form>
+<p class="small">Messages containing blocked terms are not sent and are reviewed by admins.</p>
+{{template "footer" .}}

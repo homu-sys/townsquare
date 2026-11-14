@@ -1,0 +1,18 @@
+{{template "header" .}}
+<h2>Set up your town</h2>
+<p>This is a brand-new instance. Create the first account; it will be the administrator.</p>
+<form method="post" action="/setup" class="stack">
+{{template "csrf" .}}
+<label>Username <span class="hint">(letters, numbers, underscores; 3-24 characters)</span><br>
+<input type="text" name="username" value="{{index .Form "username"}}" maxlength="24" required autofocus></label>
+<label>Display name<br>
+<input type="text" name="display_name" value="{{index .Form "display_name"}}" maxlength="60"></label>
+<label>Email <span class="hint">(optional)</span><br>
+<input type="email" name="email" value="{{index .Form "email"}}"></label>
+<label>Password <span class="hint">(at least 8 characters)</span><br>
+<input type="password" name="password" required></label>
+<label>Confirm password<br>
+<input type="password" name="confirm" required></label>
+<button type="submit" class="button">Create admin account</button>
+</form>
+{{template "footer" .}}

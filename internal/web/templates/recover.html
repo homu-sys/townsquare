@@ -1,0 +1,17 @@
+{{template "header" .}}
+<h2>Recover your account</h2>
+<p>Enter your username or email and one of the recovery codes you saved when you signed up.</p>
+<form method="post" action="/recover" class="stack">
+{{template "csrf" .}}
+<label>Username or email<br>
+<input type="text" name="login" value="{{index .Form "login"}}" required autofocus></label>
+<label>Recovery code<br>
+<input type="text" name="code" value="{{index .Form "code"}}" required autocomplete="off"></label>
+<label>New password <span class="hint">(at least 8 characters)</span><br>
+<input type="password" name="password" required></label>
+<label>Confirm new password<br>
+<input type="password" name="confirm" required></label>
+<button type="submit" class="button">Reset password</button>
+</form>
+<p class="small">No recovery code? Ask an admin to generate a reset link.</p>
+{{template "footer" .}}

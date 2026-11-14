@@ -1,0 +1,17 @@
+{{template "header" .}}
+<h2>Messages</h2>
+<p class="small">Direct messages are private. Messages containing blocked terms are not delivered and are reviewed by admins.</p>
+{{if .Conversations}}
+<table class="messages">
+  <tr><th>Person</th><th>Last message</th></tr>
+  {{range .Conversations}}
+  <tr>
+    <td><a href="/messages/{{.Username}}">{{.DisplayName}}</a><br><span class="small">@{{.Username}}</span></td>
+    <td class="date">{{fdate .LastAt}}</td>
+  </tr>
+  {{end}}
+</table>
+{{else}}
+<p class="empty">No messages yet. <a href="/users">Find someone</a> and send them a message.</p>
+{{end}}
+{{template "footer" .}}

@@ -1,0 +1,10 @@
+{{template "header" .}}
+<h2>Save your recovery codes</h2>
+<p>Each code can be used once to reset your password if you lose it. They will not be shown again.</p>
+<div class="token-box">
+<pre>{{range .RecoveryCodes}}{{.}}
+{{end}}</pre>
+</div>
+<p class="small">Store them somewhere safe. Generating a new set invalidates every old code.</p>
+<p><a href="/">Continue to the front page</a> &middot; <a href="/settings">Settings</a></p>
+{{template "footer" .}}

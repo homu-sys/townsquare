@@ -1,0 +1,10 @@
+{{template "header" .}}
+<h2>Hashtags</h2>
+{{if .Tags}}
+<div class="tag-cloud">
+{{range .Tags}}<a class="hashtag" href="/tags/{{.Tag}}">#{{.Tag}}</a> <span class="small">({{.Count}})</span> {{end}}
+</div>
+{{else}}
+<p class="empty">No hashtags yet. Add one to a post with #like-this.</p>
+{{end}}
+{{template "footer" .}}

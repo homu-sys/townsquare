@@ -1,0 +1,14 @@
+{{template "header" .}}
+<h2>Channels</h2>
+<p class="small">Pick a room. NSFW is hidden until you confirm the 18+ warning.</p>
+<ul class="channel-list">
+{{range .Channels}}
+  <li>
+    <a href="/c/{{.Slug}}">{{.Name}}</a>
+    {{if .NSFW}}<span class="tag nsfw">18+</span>{{end}}
+    <span class="small">({{.Count}} {{plural .Count "post" "posts"}})</span>
+    <div class="small">{{.Description}}</div>
+  </li>
+{{end}}
+</ul>
+{{template "footer" .}}

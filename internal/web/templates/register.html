@@ -1,0 +1,22 @@
+{{template "header" .}}
+<h2>Create an account</h2>
+{{if .InviteRequired}}<p>Registration is invite-only. Ask an admin for a code.</p>
+{{else}}<p>Registration is open. You can sign up without an invite.</p>
+{{end}}
+<form method="post" action="/register" class="stack">
+{{template "csrf" .}}
+<label>Invite code {{if not .InviteRequired}}<span class="hint">(optional)</span>{{end}}<br>
+<input type="text" name="invite" value="{{index .Form "invite"}}" {{if .InviteRequired}}required autofocus{{end}}></label>
+<label>Username <span class="hint">(letters, numbers, underscores; 3-24 characters)</span><br>
+<input type="text" name="username" value="{{index .Form "username"}}" maxlength="24" required {{if not .InviteRequired}}autofocus{{end}}></label>
+<label>Display name<br>
+<input type="text" name="display_name" value="{{index .Form "display_name"}}" maxlength="60"></label>
+<label>Email <span class="hint">(optional)</span><br>
+<input type="email" name="email" value="{{index .Form "email"}}"></label>
+<label>Password <span class="hint">(at least 8 characters)</span><br>
+<input type="password" name="password" required></label>
+<label>Confirm password<br>
+<input type="password" name="confirm" required></label>
+<button type="submit" class="button">Create account</button>
+</form>
+{{template "footer" .}}

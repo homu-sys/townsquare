@@ -1,0 +1,9 @@
+image-safety-classifier-xs.onnx
+
+Model: OwenElliott/image-safety-classifier-xs
+Source: https://huggingface.co/OwenElliott/image-safety-classifier-xs
+License: MIT
+SHA-256: 8c28c49d9075f3ad15ebdc2961f02d5b3f99be944815b848b49c9f0e6f3fb689
+
+The model classifies images as NSFL (gore), NSFW, or SFW. It is embedded in
+Townsquare and run locally with ONNX Runtime; no image data leaves the server.

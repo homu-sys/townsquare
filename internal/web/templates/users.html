@@ -1,0 +1,20 @@
+{{template "header" .}}
+<h2>People</h2>
+{{if .Users}}
+<table class="people">
+  <tr><th></th><th>Username</th><th>Display name</th><th>Role</th><th>Joined</th></tr>
+  {{range .Users}}
+  <tr>
+    <td class="avatar-cell">{{if .Avatar}}<img class="avatar avatar-small" src="data:image/png;base64,{{.Avatar}}" alt="{{.DisplayName}}" width="32" height="32">{{end}}</td>
+    <td><a href="/users/{{.Username}}">{{.Username}}</a></td>
+    <td>{{.DisplayName}}</td>
+    <td>{{.Role}}</td>
+    <td class="date">{{fday .CreatedAt}}</td>
+  </tr>
+  {{end}}
+</table>
+{{template "pager" .}}
+{{else}}
+<p class="empty">Nobody here yet.</p>
+{{end}}
+{{template "footer" .}}

@@ -1,0 +1,12 @@
+{{template "header" .}}
+{{template "channel_nav" .}}
+<h2>{{.ChannelName}}{{if eq .Channel "nsfw"}} <span class="tag nsfw">18+</span>{{end}}</h2>
+<p class="small">{{.ChannelDescription}}</p>
+{{if eq .Channel "nsfw"}}<p class="small danger">This channel contains adult or graphic material.</p>{{end}}
+{{if .Posts}}
+{{template "post_table" .}}
+{{template "pager" .}}
+{{else}}
+<p class="empty">No posts in this channel yet.{{if .LoggedIn}} <a href="/new">Start one.</a>{{end}}</p>
+{{end}}
+{{template "footer" .}}

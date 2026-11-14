@@ -1,0 +1,46 @@
+{{template "header" .}}
+<h2>Invites</h2>
+{{template "admin_nav" .}}
+
+{{if .NewInvite}}
+<div class="token-box">
+  <p><strong>New invite code:</strong></p>
+  <pre>{{.NewInvite.Code}}</pre>
+  <p>Send this link to the person you want to invite:</p>
+  <pre>{{.BaseURL}}/register?invite={{.NewInvite.Code}}</pre>
+</div>
+{{end}}
+
+<h3>Create an invite</h3>
+<form method="post" action="/admin/invites" class="inline-form">
+{{template "csrf" .}}
+<label>Expires in <input type="number" name="days" value="7" min="0" max="365" class="short"> days (0 = never)</label>
+<button type="submit" class="button">Create invite</button>
+</form>
+
+<h3>Existing invites</h3>
+{{if .Invites}}
+<table class="invites">
+  <tr><th>Code</th><th>Created by</th><th>Created</th><th>Expires</th><th>Status</th><th></th></tr>
+  {{range .Invites}}
+  <tr>
+    <td><code>{{.Code}}</code></td>
+    <td>{{.CreatedByUsername}}</td>
+    <td class="date">{{fday .CreatedAt}}</td>
+    <td class="date">{{if .ExpiresAt}}{{fday .ExpiresAt}}{{else}}never{{end}}</td>
+    <td>{{if .UsedBy}}used by <a href="/users/{{.UsedByUsername}}">{{.UsedByUsername}}</a>{{else}}<strong>unused</strong>{{end}}</td>
+    <td>
+      {{if not .UsedBy}}
+      <form method="post" action="/admin/invites/{{.Code}}/delete" class="inline">
+      {{template "csrf" $}}
+      <button type="submit" class="link danger">delete</button>
+      </form>
+      {{end}}
+    </td>
+  </tr>
+  {{end}}
+</table>
+{{else}}
+<p class="empty">No invites yet.</p>
+{{end}}
+{{template "footer" .}}

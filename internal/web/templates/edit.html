@@ -1,0 +1,11 @@
+{{template "header" .}}
+<h2>{{.Heading}}</h2>
+{{template "post_form" .}}
+{{if .CanDelete}}
+<hr>
+<form method="post" action="/posts/{{.Post.ID}}/delete" class="inline">
+{{template "csrf" .}}
+<button type="submit" class="danger">Delete this post</button>
+</form>
+{{end}}
+{{template "footer" .}}

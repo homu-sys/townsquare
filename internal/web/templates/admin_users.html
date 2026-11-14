@@ -1,0 +1,47 @@
+{{template "header" .}}
+<h2>Users</h2>
+{{template "admin_nav" .}}
+
+{{if .Users}}
+<table class="users">
+  <tr><th>User</th><th>Email</th><th>Role</th><th>Status</th><th>Joined</th><th>Actions</th></tr>
+  {{range .Users}}
+  <tr>
+    <td><a href="/users/{{.Username}}">{{.Username}}</a><br><span class="small">{{.DisplayName}}</span></td>
+    <td class="small">{{if .Email}}{{.Email}}{{else}}&mdash;{{end}}</td>
+    <td>{{.Role}}</td>
+    <td>{{if .Disabled}}disabled{{else}}active{{end}}</td>
+    <td class="date">{{fday .CreatedAt}}</td>
+    <td class="actions">
+      {{if ne .ID $.User.ID}}
+        <form method="post" action="/admin/users/{{.ID}}/{{if .Disabled}}enable{{else}}disable{{end}}" class="inline">
+        {{template "csrf" $}}
+        <button type="submit" class="link">{{if .Disabled}}enable{{else}}disable{{end}}</button>
+        </form>
+        <form method="post" action="/admin/users/{{.ID}}/reset" class="inline">
+        {{template "csrf" $}}
+        <button type="submit" class="link">reset password</button>
+        </form>
+        {{if eq .Role "admin"}}
+        <form method="post" action="/admin/users/{{.ID}}/demote" class="inline">
+        {{template "csrf" $}}
+        <button type="submit" class="link">demote</button>
+        </form>
+        {{else}}
+        <form method="post" action="/admin/users/{{.ID}}/promote" class="inline">
+        {{template "csrf" $}}
+        <button type="submit" class="link">promote</button>
+        </form>
+        {{end}}
+      {{else}}
+        <span class="small">(you)</span>
+      {{end}}
+    </td>
+  </tr>
+  {{end}}
+</table>
+{{template "pager" .}}
+{{else}}
+<p class="empty">No users.</p>
+{{end}}
+{{template "footer" .}}

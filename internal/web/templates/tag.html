@@ -1,0 +1,10 @@
+{{template "header" .}}
+<h2>Posts tagged #{{.Tag}}</h2>
+<p class="small"><a href="/tags">All hashtags</a></p>
+{{if .Posts}}
+{{template "post_table" .}}
+{{template "pager" .}}
+{{else}}
+<p class="empty">No posts with this hashtag yet.</p>
+{{end}}
+{{template "footer" .}}

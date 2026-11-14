@@ -1,0 +1,73 @@
+{{template "header" .}}
+<h2>Settings</h2>
+
+<h3>Profile</h3>
+<form method="post" action="/settings" class="stack">
+{{template "csrf" .}}
+<label>Display name<br>
+<input type="text" name="display_name" value="{{index .Form "display_name"}}" maxlength="60" required></label>
+<label>Bio <span class="hint">(plain text, up to 1,000 characters)</span><br>
+<textarea name="bio" rows="5" maxlength="1000">{{index .Form "bio"}}</textarea></label>
+<button type="submit" class="button">Save profile</button>
+</form>
+
+<h3>Profile photo</h3>
+<div class="avatar-settings">
+  {{if .User.Avatar}}<img class="avatar avatar-large" src="data:image/png;base64,{{.User.Avatar}}" alt="Your profile photo" width="128" height="128">{{else}}<div class="avatar avatar-large avatar-empty" aria-hidden="true"></div>{{end}}
+  <form method="post" action="/settings/avatar" enctype="multipart/form-data" class="stack">
+  {{template "csrf" .}}
+  <label>PNG or JPEG, up to 2 MB<br>
+  <input type="file" name="avatar" accept="image/png,image/jpeg"></label>
+  <p class="small">Uploads are decoded, cropped, resized, and re-encoded to a safe PNG before being stored as text. The original file is never served.</p>
+  <div class="form-actions">
+    <button type="submit" name="action" value="upload" class="button">Upload photo</button>
+    {{if .User.Avatar}}<button type="submit" name="action" value="remove" class="danger">Remove photo</button>{{end}}
+  </div>
+  </form>
+</div>
+
+<hr>
+<h3>Password</h3>
+<form method="post" action="/settings/password" class="stack">
+{{template "csrf" .}}
+<label>Current password<br>
+<input type="password" name="current_password" required></label>
+<label>New password<br>
+<input type="password" name="new_password" required></label>
+<label>Confirm new password<br>
+<input type="password" name="confirm_password" required></label>
+<button type="submit" class="button">Change password</button>
+</form>
+
+<hr>
+<h3>Recovery codes</h3>
+<p>{{if .RecoveryCodeCount}}You have {{.RecoveryCodeCount}} unused recovery {{plural .RecoveryCodeCount "code" "codes"}}.{{else}}You have no unused recovery codes.{{end}}</p>
+<form method="post" action="/settings/recovery-codes" class="stack">
+{{template "csrf" .}}
+<label>Current password<br>
+<input type="password" name="current_password" required></label>
+<button type="submit" class="button">Generate new recovery codes</button>
+</form>
+<p class="small">Generating a new set invalidates every old code. Save the new codes somewhere safe.</p>
+
+<hr>
+<h3>API token</h3>
+{{if .Token}}
+<div class="token-box">
+  <p><strong>Your new token (shown once):</strong></p>
+  <pre>{{.Token}}</pre>
+  <p>Use it like this:</p>
+  <pre>curl -H "Authorization: Bearer {{.Token}}" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Hello","body":"First post"}' \
+  {{.BaseURL}}/api/v1/posts</pre>
+</div>
+{{end}}
+<p>{{if .User.APITokenHash}}You have an API token. Generating a new one replaces it.{{else}}You do not have an API token.{{end}}</p>
+<form method="post" action="/settings/token" class="inline">
+{{template "csrf" .}}
+<button type="submit" name="action" value="generate" class="button">Generate new token</button>
+{{if .User.APITokenHash}}<button type="submit" name="action" value="revoke" class="danger">Revoke current token</button>{{end}}
+</form>
+<p class="small">The token can create posts and comments through the public API. Keep it secret.</p>
+{{template "footer" .}}

@@ -1,0 +1,19 @@
+{{define "post_form"}}
+<form method="post" action="{{.FormAction}}" class="stack">
+{{template "csrf" .}}
+<label>Subject<br>
+<input type="text" name="title" value="{{index .Form "title"}}" maxlength="200" required autofocus></label>
+<label>Channel<br>
+<select name="channel">
+{{range .Channels}}<option value="{{.Slug}}"{{if eq (index $.Form "channel") .Slug}} selected{{end}}>{{.Name}}</option>
+{{end}}
+</select></label>
+<label>Body <span class="hint">(Markdown: **bold**, *italic*, [links](https://example.com), lists, code, #hashtags)</span><br>
+<textarea name="body" rows="20" required>{{index .Form "body"}}</textarea></label>
+{{template "emoji_picker" .}}
+<div class="form-actions">
+  <button type="submit" class="button">Save post</button>
+  <a href="/">Cancel</a>
+</div>
+</form>
+{{end}}

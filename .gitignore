@@ -1,0 +1,7 @@
+/bin/
+townsquare.db
+townsquare.db-shm
+townsquare.db-wal
+townsquare.db-journal
+.env
+*.log

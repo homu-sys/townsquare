@@ -1,0 +1,27 @@
+{{template "header" .}}
+<h2>Posts</h2>
+{{template "admin_nav" .}}
+
+{{if .Posts}}
+<table class="posts">
+  <tr><th>Subject</th><th>Author</th><th class="num">Replies</th><th>Posted</th><th></th></tr>
+  {{range .Posts}}
+  <tr>
+    <td><a href="/posts/{{.ID}}">{{.Title}}</a></td>
+    <td><a href="/users/{{.AuthorUsername}}">{{.AuthorDisplayName}}</a></td>
+    <td class="num">{{.CommentCount}}</td>
+    <td class="date">{{fdate .CreatedAt}}</td>
+    <td>
+      <form method="post" action="/admin/posts/{{.ID}}/delete" class="inline">
+      {{template "csrf" $}}
+      <button type="submit" class="link danger">delete</button>
+      </form>
+    </td>
+  </tr>
+  {{end}}
+</table>
+{{template "pager" .}}
+{{else}}
+<p class="empty">No posts.</p>
+{{end}}
+{{template "footer" .}}

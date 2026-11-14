@@ -1,0 +1,13 @@
+{{template "header" .}}
+<h2>About {{.SiteName}}</h2>
+<p>{{.SiteName}} is a small, self-hosted place to publish things: profiles, Markdown posts,
+comments, emoji reactions, hashtags, and channels. It runs as one small Go service on your
+own hardware.</p>
+
+<p>Avatars are resized and checked locally for adult or graphic content; nothing is sent to an
+external service. The NSFW channel stays hidden until you confirm the 18+ warning.</p>
+
+<p>The public API starts at <a href="/api/v1/site"><code>/api/v1/site</code></a>. Writes use a
+personal token from <a href="/settings">settings</a>. Version 1 hosts one town; Version 2 will
+connect towns with ActivityPub.</p>
+{{template "footer" .}}

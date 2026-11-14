@@ -1,0 +1,27 @@
+{{template "header" .}}
+<h2>{{.Profile.DisplayName}}{{if eq .Profile.Role "admin"}} <span class="tag">admin</span>{{end}}</h2>
+<div class="profile">
+  <div class="profile-photo">
+    {{if .Profile.Avatar}}<img class="avatar avatar-large" src="data:image/png;base64,{{.Profile.Avatar}}" alt="{{.Profile.DisplayName}}" width="128" height="128">{{else}}<div class="avatar avatar-large avatar-empty" aria-hidden="true"></div>{{end}}
+  </div>
+  <div class="profile-meta">
+    <p><strong>@{{.Profile.Username}}</strong></p>
+    <p>Joined {{fday .Profile.CreatedAt}}</p>
+    <p><a href="/users/{{.Profile.Username}}/feed.xml">RSS feed</a></p>
+    {{if .Profile.Disabled}}<p class="danger">This account is disabled.</p>{{end}}
+    {{if .User}}{{if eq .User.ID .Profile.ID}}<p><a href="/settings">Edit your profile</a></p>
+    {{else}}{{if not .Profile.Disabled}}<p><a href="/messages/{{.Profile.Username}}">Send a message</a></p>{{end}}{{end}}{{end}}
+  </div>
+  <div class="profile-bio">
+    {{if .Profile.Bio}}{{nl2br .Profile.Bio}}{{else}}<em>No bio yet.</em>{{end}}
+  </div>
+</div>
+<hr>
+<h3>Posts by {{.Profile.DisplayName}}</h3>
+{{if .Posts}}
+{{template "post_table" .}}
+{{template "pager" .}}
+{{else}}
+<p class="empty">No posts yet.</p>
+{{end}}
+{{template "footer" .}}

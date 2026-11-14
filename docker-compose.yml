@@ -1,0 +1,24 @@
+services:
+  townsquare:
+    build: .
+    image: townsquare:latest
+    container_name: townsquare
+    restart: unless-stopped
+    ports:
+      - "${TS_PORT:-8090}:8090"
+    environment:
+      TS_BASE_URL: "${TS_BASE_URL:-}"
+      TS_SITE_NAME: "${TS_SITE_NAME:-Townsquare}"
+      TS_TAGLINE: "${TS_TAGLINE:-a small, self-hosted place to publish things}"
+      TS_SECURE_COOKIES: "${TS_SECURE_COOKIES:-false}"
+      TS_ALLOW_SETUP: "${TS_ALLOW_SETUP:-true}"
+      TS_OPEN_REGISTRATION: "${TS_OPEN_REGISTRATION:-false}"
+      TS_TRUST_PROXY: "${TS_TRUST_PROXY:-false}"
+      TS_ALLOW_REMOTE_IMAGES: "${TS_ALLOW_REMOTE_IMAGES:-false}"
+      TS_DM_BLOCKLIST: "${TS_DM_BLOCKLIST:-}"
+      TS_DB: /data/townsquare.db
+    volumes:
+      - townsquare_data:/data
+
+volumes:
+  townsquare_data:

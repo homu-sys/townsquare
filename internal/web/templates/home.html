@@ -1,0 +1,14 @@
+{{template "header" .}}
+{{if .News}}<marquee class="marquee" behavior="alternate" scrollamount="2">{{range $i, $item := .News}}{{if $i}} &bull; {{end}}{{$item.Body}}{{end}}</marquee>{{else}}<marquee class="marquee" behavior="alternate" scrollamount="2">{{.SiteName}} &mdash; {{.Tagline}} &mdash; pull up a chair.</marquee>{{end}}
+<div class="toolbar">
+  {{if .LoggedIn}}<a class="button" href="/new">Write a new post</a>{{end}}
+  <a class="button" href="/random">Random post</a>
+</div>
+<h2>Latest posts</h2>
+{{if .Posts}}
+{{template "post_table" .}}
+{{template "pager" .}}
+{{else}}
+<p class="empty">No posts yet.{{if .LoggedIn}} <a href="/new">Be the first to write something.</a>{{end}}</p>
+{{end}}
+{{template "footer" .}}

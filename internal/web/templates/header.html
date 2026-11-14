@@ -1,0 +1,70 @@
+{{define "header"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{if .Heading}}{{.Heading}} :: {{end}}{{.SiteName}}</title>
+<meta name="description" content="{{.Description}}">
+{{if .NoIndex}}<meta name="robots" content="noindex, nofollow">{{end}}
+<link rel="canonical" href="{{.CanonicalURL}}">
+<meta property="og:site_name" content="{{.SiteName}}">
+<meta property="og:type" content="{{.OGType}}">
+<meta property="og:title" content="{{.OGTitle}}">
+<meta property="og:description" content="{{.Description}}">
+<meta property="og:url" content="{{.CanonicalURL}}">
+<meta property="og:image" content="{{.OGImage}}">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="{{.SiteName}}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{{.OGTitle}}">
+<meta name="twitter:description" content="{{.Description}}">
+<meta name="twitter:image" content="{{.OGImage}}">
+<meta name="theme-color" content="#26251b">
+<link rel="icon" href="/static/favicon.ico" sizes="16x16 32x32">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="alternate" type="application/rss+xml" title="{{.SiteName}}" href="/feed.xml">
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/emoji.js" defer></script>
+</head>
+<body>
+<div class="page">
+<div class="banner">
+  <div class="banner-text">
+    <div class="site-title"><a href="/">{{.SiteName}}</a></div>
+    <div class="tagline">{{.Tagline}}</div>
+  </div>
+</div>
+{{template "nav" .}}
+{{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
+{{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+<main class="content">
+{{end}}
+
+{{define "nav"}}
+<div class="nav">
+  <span class="nav-left">
+    <a href="/">[ home ]</a>
+    <a href="/users">[ people ]</a>
+    <a href="/tags">[ tags ]</a>
+    <a href="/channels">[ channels ]</a>
+    {{if .LoggedIn}}<a href="/new">[ new post ]</a>
+    <a href="/messages">[ messages ]</a>{{end}}
+    <a href="/about">[ about ]</a>
+    <a href="/api/v1/site">[ api ]</a>
+    {{if .IsAdmin}}<a href="/admin">[ admin ]</a>{{end}}
+  </span>
+  <span class="nav-right">
+    {{if .LoggedIn}}
+      <a href="/users/{{.User.Username}}">{{.User.DisplayName}}</a>
+      <a href="/settings">[ settings ]</a>
+      <form method="post" action="/logout" class="inline">{{template "csrf" .}}<button type="submit" class="link">[ log out ]</button></form>
+    {{else}}
+      <a href="/login">[ log in ]</a>
+      <a href="/register">[ register ]</a>
+    {{end}}
+  </span>
+</div>
+{{end}}

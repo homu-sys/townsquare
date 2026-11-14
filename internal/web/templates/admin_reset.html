@@ -1,0 +1,9 @@
+{{template "header" .}}
+<h2>Password reset link</h2>
+<p>Send this one-time link to {{.ResetTarget.DisplayName}} however you like. It expires {{fdate .ResetExpires}}.</p>
+<div class="token-box">
+<pre>{{.ResetLink}}</pre>
+</div>
+<p class="small">The link can be used once. Generating another link for this user invalidates this one.</p>
+<p><a href="/admin/users">Back to users</a></p>
+{{template "footer" .}}

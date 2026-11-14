@@ -1,0 +1,59 @@
+{{template "header" .}}
+<h2 class="post-title">{{.Post.Title}}</h2>
+<div class="byline">
+  by <a href="/users/{{.Post.AuthorUsername}}">{{.Post.AuthorDisplayName}}</a>{{if eq .Post.AuthorRole "admin"}} <span class="tag">admin</span>{{end}}
+  on {{fdate .Post.CreatedAt}}{{if ne .Post.CreatedAt .Post.UpdatedAt}} &middot; updated {{fdate .Post.UpdatedAt}}{{end}}
+  {{if eq .Post.Channel "nsfw"}} &middot; <span class="tag nsfw">18+</span>
+  {{else if ne .Post.Channel "general"}} &middot; <a class="tag" href="/c/{{.Post.Channel}}">{{.Post.Channel}}</a>{{end}}
+</div>
+<div class="post-body">{{safeHTML .Post.BodyHTML}}</div>
+{{if .PostTags}}<p class="tags">Tags: {{range .PostTags}}<a class="hashtag" href="/tags/{{.}}">#{{.}}</a> {{end}}</p>{{end}}
+{{template "reaction_bar" .PostReactions}}
+{{if .CanEdit}}
+<div class="toolbar">
+  <a class="button" href="/posts/{{.Post.ID}}/edit">Edit</a>
+  {{if .CanDelete}}
+  <form method="post" action="/posts/{{.Post.ID}}/delete" class="inline">
+  {{template "csrf" .}}
+  <button type="submit" class="danger">Delete</button>
+  </form>
+  {{end}}
+</div>
+{{end}}
+<hr>
+<a id="comments"></a>
+<h3>{{.Post.CommentCount}} {{plural .Post.CommentCount "comment" "comments"}}</h3>
+{{if .Comments}}
+<div class="comments">
+{{range .Comments}}
+  <div class="comment" id="comment-{{.ID}}">
+    <div class="comment-head">
+      <a href="/users/{{.AuthorUsername}}">{{.AuthorDisplayName}}</a>{{if eq .AuthorRole "admin"}} <span class="tag">admin</span>{{end}}
+      <span class="date">{{fdate .CreatedAt}}</span>
+    </div>
+    <div class="comment-body">{{safeHTML .BodyHTML}}</div>
+    {{template "reaction_bar" .Reactions}}
+    {{if .CanDelete}}
+    <form method="post" action="/comments/{{.ID}}/delete" class="inline">
+    {{template "csrf" $}}
+    <button type="submit" class="link danger">delete</button>
+    </form>
+    {{end}}
+  </div>
+{{end}}
+</div>
+{{else}}
+<p class="empty">No comments yet.</p>
+{{end}}
+{{if .LoggedIn}}
+<form method="post" action="/posts/{{.Post.ID}}/comments" class="stack comment-form">
+{{template "csrf" .}}
+<label>Add a comment<br>
+<textarea name="body" rows="5" required></textarea></label>
+{{template "emoji_picker" .}}
+<button type="submit" class="button">Post comment</button>
+</form>
+{{else}}
+<p class="small"><a href="/login?next=/posts/{{.Post.ID}}">Log in</a> to comment.</p>
+{{end}}
+{{template "footer" .}}

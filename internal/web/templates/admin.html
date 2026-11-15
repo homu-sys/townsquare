@@ -2,6 +2,21 @@
 <h2>Admin</h2>
 {{template "admin_nav" .}}
 
+<h3>Attack mode</h3>
+{{if .Lockdown}}
+<p class="error">This website is under attack. Only IPs recorded before attack mode was enabled, and signed-in admins, may enter.</p>
+<form method="post" action="/admin/lockdown/disable" class="inline">
+{{template "csrf" .}}
+<button type="submit" class="button">Turn off attack mode</button>
+</form>
+{{else}}
+<p class="small">Attack mode turns on automatically during a flood. You can also turn it on here. While it is on, everyone except previously recorded IPs and signed-in admins sees a message that the site is under attack.</p>
+<form method="post" action="/admin/lockdown" class="inline">
+{{template "csrf" .}}
+<button type="submit" class="button">Turn on attack mode</button>
+</form>
+{{end}}
+
 <h3>Statistics</h3>
 <table class="stats">
   <tr><th>Users</th><td>{{.Stats.Users}}</td></tr>

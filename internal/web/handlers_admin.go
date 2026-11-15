@@ -2,6 +2,7 @@ package web
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -36,7 +37,51 @@ func (s *Server) adminDashboard(w http.ResponseWriter, r *http.Request) {
 	page.Users = recentUsers
 	page.Posts = recentPosts
 	page.Invites = invites
+	page.Lockdown = s.lockdown.Load()
 	s.render(w, r, http.StatusOK, "admin.html", page)
+}
+
+func (s *Server) adminLockdownEnable(w http.ResponseWriter, r *http.Request) {
+	u, ok := s.requireAdmin(w, r)
+	if !ok {
+		return
+	}
+	if !s.checkCSRF(w, r) {
+		return
+	}
+	if !s.lockdown.Load() {
+		if err := s.store.RecordVisitor(s.clientIP(r)); err != nil {
+			log.Printf("attack mode: record admin visitor: %v", err)
+		}
+		if err := s.enableLockdown(); err != nil {
+			s.setFlash(w, "Could not enable attack mode.")
+			redirect(w, r, "/admin")
+			return
+		}
+		log.Printf("attack mode enabled manually by %s", u.Username)
+	}
+	s.setFlash(w, "Attack mode enabled. Only recorded visitors and admins may enter.")
+	redirect(w, r, "/admin")
+}
+
+func (s *Server) adminLockdownDisable(w http.ResponseWriter, r *http.Request) {
+	u, ok := s.requireAdmin(w, r)
+	if !ok {
+		return
+	}
+	if !s.checkCSRF(w, r) {
+		return
+	}
+	if s.lockdown.Load() {
+		if err := s.disableLockdown(); err != nil {
+			s.setFlash(w, "Could not disable attack mode.")
+			redirect(w, r, "/admin")
+			return
+		}
+		log.Printf("attack mode disabled manually by %s", u.Username)
+	}
+	s.setFlash(w, "Attack mode disabled.")
+	redirect(w, r, "/admin")
 }
 
 func (s *Server) adminInvites(w http.ResponseWriter, r *http.Request) {

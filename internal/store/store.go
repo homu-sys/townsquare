@@ -59,6 +59,7 @@ type Post struct {
 type Comment struct {
 	ID                string
 	PostID            string
+	ParentID          string
 	AuthorID          string
 	AuthorUsername    string
 	AuthorDisplayName string
@@ -179,6 +180,7 @@ CREATE TABLE IF NOT EXISTS posts (
 CREATE TABLE IF NOT EXISTS comments (
   id        TEXT PRIMARY KEY,
   post_id   TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  parent_id TEXT REFERENCES comments(id) ON DELETE CASCADE,
   author_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   body_md   TEXT NOT NULL,
   body_html TEXT NOT NULL,
@@ -293,6 +295,10 @@ func Open(path string) (*Store, error) {
 	if err := migratePostChannel(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate post channel column: %w", err)
+	}
+	if err := migrateCommentParent(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate comment parent column: %w", err)
 	}
 	if _, err := db.Exec(`UPDATE meta SET value = '0'
 		WHERE key = 'hits' AND NOT EXISTS (SELECT 1 FROM visitors)`); err != nil {
@@ -428,6 +434,39 @@ func migratePostChannel(db *sql.DB) error {
 		}
 	}
 	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_posts_channel ON posts(channel, created_at DESC)`)
+	return err
+}
+
+func migrateCommentParent(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(comments)`)
+	if err != nil {
+		return err
+	}
+	hasParent := false
+	for rows.Next() {
+		var cid, notNull, pk int
+		var name, typ string
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		if name == "parent_id" {
+			hasParent = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if !hasParent {
+		if _, err := db.Exec(`ALTER TABLE comments
+			ADD COLUMN parent_id TEXT REFERENCES comments(id) ON DELETE CASCADE`); err != nil {
+			return err
+		}
+	}
+	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_comments_parent ON comments(parent_id)`)
 	return err
 }
 
@@ -1117,18 +1156,20 @@ func (s *Store) CreateComment(c *Comment) error {
 	if c.CreatedAt == "" {
 		c.CreatedAt = Now()
 	}
-	_, err := s.db.Exec(`INSERT INTO comments(id, post_id, author_id, body_md, body_html, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)`, c.ID, c.PostID, c.AuthorID, c.BodyMD, c.BodyHTML, c.CreatedAt)
+	_, err := s.db.Exec(`INSERT INTO comments(id, post_id, parent_id, author_id, body_md, body_html, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`, c.ID, c.PostID, nullIfEmpty(c.ParentID), c.AuthorID,
+		c.BodyMD, c.BodyHTML, c.CreatedAt)
 	return err
 }
 
-const commentSelect = `SELECT c.id, c.post_id, c.author_id, u.username, u.display_name, u.role,
+const commentSelect = `SELECT c.id, c.post_id, c.parent_id, c.author_id, u.username, u.display_name, u.role,
 	c.body_md, c.body_html, c.created_at
 	FROM comments c JOIN users u ON u.id = c.author_id`
 
 func scanComment(row interface{ Scan(...any) error }) (*Comment, error) {
 	var c Comment
-	err := row.Scan(&c.ID, &c.PostID, &c.AuthorID, &c.AuthorUsername, &c.AuthorDisplayName,
+	var parentID sql.NullString
+	err := row.Scan(&c.ID, &c.PostID, &parentID, &c.AuthorID, &c.AuthorUsername, &c.AuthorDisplayName,
 		&c.AuthorRole, &c.BodyMD, &c.BodyHTML, &c.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -1136,6 +1177,7 @@ func scanComment(row interface{ Scan(...any) error }) (*Comment, error) {
 	if err != nil {
 		return nil, err
 	}
+	c.ParentID = parentID.String
 	return &c, nil
 }
 
@@ -1166,10 +1208,18 @@ func (s *Store) DeleteComment(id string) error {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`DELETE FROM reactions WHERE target_type = 'comment' AND target_id = ?`, id); err != nil {
+	const subtree = `WITH RECURSIVE subtree(id) AS (
+		SELECT id FROM comments WHERE id = ?
+		UNION
+		SELECT c.id FROM comments c JOIN subtree s ON c.parent_id = s.id
+	)
+	`
+	if _, err := tx.Exec(subtree+
+		`DELETE FROM reactions WHERE target_type = 'comment' AND target_id IN (SELECT id FROM subtree)`,
+		id); err != nil {
 		return err
 	}
-	res, err := tx.Exec(`DELETE FROM comments WHERE id = ?`, id)
+	res, err := tx.Exec(subtree+`DELETE FROM comments WHERE id IN (SELECT id FROM subtree)`, id)
 	if err := oneRow(res, err); err != nil {
 		return err
 	}
@@ -1447,9 +1497,53 @@ func (s *Store) CountPostsByChannel(channel string) (int, error) {
 	return n, err
 }
 
-func (s *Store) Visit(ip string) (int64, error) {
+func visitorID(ip string) string {
 	sum := sha256.Sum256([]byte(ip))
-	visitorID := hex.EncodeToString(sum[:])
+	return hex.EncodeToString(sum[:])
+}
+
+func (s *Store) RecordVisitor(ip string) error {
+	_, err := s.db.Exec(`INSERT INTO visitors(id, created_at) VALUES (?, ?)
+		ON CONFLICT(id) DO NOTHING`, visitorID(ip), Now())
+	return err
+}
+
+func (s *Store) IsRecordedVisitor(ip string) (bool, error) {
+	var one int
+	err := s.db.QueryRow(`SELECT 1 FROM visitors WHERE id = ?`, visitorID(ip)).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *Store) LockdownEnabled() (bool, error) {
+	var value string
+	err := s.db.QueryRow(`SELECT value FROM meta WHERE key = 'lockdown'`).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return value == "1", nil
+}
+
+func (s *Store) SetLockdown(enabled bool) error {
+	value := "0"
+	if enabled {
+		value = "1"
+	}
+	_, err := s.db.Exec(`INSERT INTO meta(key, value) VALUES ('lockdown', ?)
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, value)
+	return err
+}
+
+func (s *Store) Visit(ip string) (int64, error) {
+	visitorID := visitorID(ip)
 
 	tx, err := s.db.Begin()
 	if err != nil {

@@ -47,6 +47,7 @@ type apiPost struct {
 type apiComment struct {
 	ID        string    `json:"id"`
 	PostID    string    `json:"post_id"`
+	ParentID  string    `json:"parent_id,omitempty"`
 	URL       string    `json:"url"`
 	Body      string    `json:"body"`
 	BodyHTML  string    `json:"body_html"`
@@ -110,6 +111,7 @@ func (s *Server) apiCommentToDTO(c *store.Comment, base string) apiComment {
 	return apiComment{
 		ID:        c.ID,
 		PostID:    c.PostID,
+		ParentID:  c.ParentID,
 		URL:       base + "/posts/" + c.PostID + "#comment-" + c.ID,
 		Body:      c.BodyMD,
 		BodyHTML:  c.BodyHTML,
@@ -331,7 +333,8 @@ func (s *Server) apiCreateComment(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var in struct {
-		Body string `json:"body"`
+		Body     string `json:"body"`
+		ParentID string `json:"parent_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		apiError(w, http.StatusBadRequest, "invalid JSON body")
@@ -342,8 +345,17 @@ func (s *Server) apiCreateComment(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusBadRequest, msg)
 		return
 	}
+	parentID := strings.TrimSpace(in.ParentID)
+	if parentID != "" {
+		parent, err := s.store.GetComment(parentID)
+		if err != nil || parent.PostID != p.ID {
+			apiError(w, http.StatusBadRequest, "invalid parent_id")
+			return
+		}
+	}
 	c := &store.Comment{
 		PostID:   p.ID,
+		ParentID: parentID,
 		AuthorID: u.ID,
 		BodyMD:   body,
 		BodyHTML: markdown.Render(body),

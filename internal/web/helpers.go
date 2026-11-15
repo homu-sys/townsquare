@@ -29,8 +29,18 @@ type StatsView struct {
 
 type CommentView struct {
 	store.Comment
-	CanDelete bool
-	Reactions ReactionView
+	Depth              int
+	Indent             int
+	ReplyToUsername    string
+	ReplyToDisplayName string
+	CanDelete          bool
+	Reactions          ReactionView
+}
+
+type ReplyTarget struct {
+	ID                string
+	AuthorUsername    string
+	AuthorDisplayName string
 }
 
 type PageData struct {
@@ -57,10 +67,12 @@ type PageData struct {
 	Flash     string
 	Error     string
 	Hits      int64
+	Lockdown  bool
 
 	Posts         []store.Post
 	Post          *store.Post
 	Comments      []CommentView
+	ReplyTo       *ReplyTarget
 	Profile       *store.User
 	Peer          *store.User
 	Users         []store.User

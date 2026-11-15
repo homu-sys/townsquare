@@ -223,3 +223,172 @@ func TestNewsCRUD(t *testing.T) {
 		t.Fatalf("list after delete = %+v, err = %v", list, err)
 	}
 }
+
+func TestOpenMigratesCommentParent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old-comments.db")
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatalf("open old db: %v", err)
+	}
+	if _, err := db.Exec(`CREATE TABLE users (
+		id             TEXT PRIMARY KEY,
+		username       TEXT NOT NULL UNIQUE COLLATE NOCASE,
+		display_name   TEXT NOT NULL,
+		email          TEXT UNIQUE COLLATE NOCASE,
+		password_hash  TEXT NOT NULL,
+		bio            TEXT NOT NULL DEFAULT '',
+		avatar         TEXT NOT NULL DEFAULT '',
+		role           TEXT NOT NULL DEFAULT 'user',
+		disabled       INTEGER NOT NULL DEFAULT 0,
+		created_at     TEXT NOT NULL,
+		api_token_hash TEXT UNIQUE
+	);
+	CREATE TABLE posts (
+		id         TEXT PRIMARY KEY,
+		author_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		title      TEXT NOT NULL,
+		body_md    TEXT NOT NULL,
+		body_html  TEXT NOT NULL,
+		channel    TEXT NOT NULL DEFAULT 'general',
+		created_at TEXT NOT NULL,
+		updated_at TEXT NOT NULL
+	);
+	CREATE TABLE comments (
+		id         TEXT PRIMARY KEY,
+		post_id    TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+		author_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		body_md    TEXT NOT NULL,
+		body_html  TEXT NOT NULL,
+		created_at TEXT NOT NULL
+	);
+	INSERT INTO users(id, username, display_name, password_hash, created_at)
+		VALUES ('u1', 'writer', 'Writer', 'hash', '2026-01-01T00:00:00Z');
+	INSERT INTO posts(id, author_id, title, body_md, body_html, created_at, updated_at)
+		VALUES ('p1', 'u1', 'Old post', 'body', '<p>body</p>', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z');
+	INSERT INTO comments(id, post_id, author_id, body_md, body_html, created_at)
+		VALUES ('c1', 'p1', 'u1', 'old', '<p>old</p>', '2026-01-01T00:00:00Z');`); err != nil {
+		t.Fatalf("create old comments table: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close old db: %v", err)
+	}
+
+	st, err := Open(path)
+	if err != nil {
+		t.Fatalf("open migrated db: %v", err)
+	}
+	defer st.Close()
+
+	c, err := st.GetComment("c1")
+	if err != nil {
+		t.Fatalf("get old comment: %v", err)
+	}
+	if c.ParentID != "" {
+		t.Fatalf("old comment parent = %q, want empty", c.ParentID)
+	}
+	reply := &Comment{PostID: "p1", ParentID: "c1", AuthorID: "u1", BodyMD: "reply", BodyHTML: "<p>reply</p>"}
+	if err := st.CreateComment(reply); err != nil {
+		t.Fatalf("create reply: %v", err)
+	}
+	got, err := st.GetComment(reply.ID)
+	if err != nil {
+		t.Fatalf("get reply: %v", err)
+	}
+	if got.ParentID != "c1" {
+		t.Fatalf("reply parent = %q, want c1", got.ParentID)
+	}
+}
+
+func TestCommentThreads(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer st.Close()
+
+	u := &User{ID: NewID(), Username: "writer", DisplayName: "Writer", PasswordHash: "hash", CreatedAt: Now()}
+	if err := st.CreateUser(u); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	p := &Post{AuthorID: u.ID, Channel: "general", Title: "Thread", BodyMD: "body", BodyHTML: "<p>body</p>"}
+	if err := st.CreatePost(p); err != nil {
+		t.Fatalf("create post: %v", err)
+	}
+
+	root := &Comment{PostID: p.ID, AuthorID: u.ID, BodyMD: "root", BodyHTML: "<p>root</p>"}
+	if err := st.CreateComment(root); err != nil {
+		t.Fatalf("create root: %v", err)
+	}
+	reply := &Comment{PostID: p.ID, ParentID: root.ID, AuthorID: u.ID, BodyMD: "reply", BodyHTML: "<p>reply</p>"}
+	if err := st.CreateComment(reply); err != nil {
+		t.Fatalf("create reply: %v", err)
+	}
+
+	comments, err := st.ListComments(p.ID)
+	if err != nil || len(comments) != 2 {
+		t.Fatalf("comments = %d, err = %v", len(comments), err)
+	}
+	if comments[1].ParentID != root.ID {
+		t.Fatalf("reply parent = %q, want %q", comments[1].ParentID, root.ID)
+	}
+
+	if _, err := st.DB().Exec(`INSERT INTO reactions(id, user_id, target_type, target_id, emoji, created_at)
+		VALUES ('r1', ?, 'comment', ?, 'x', ?)`, u.ID, reply.ID, Now()); err != nil {
+		t.Fatalf("insert reply reaction: %v", err)
+	}
+	if err := st.DeleteComment(root.ID); err != nil {
+		t.Fatalf("delete root: %v", err)
+	}
+	comments, err = st.ListComments(p.ID)
+	if err != nil || len(comments) != 0 {
+		t.Fatalf("comments after deleting root = %d, err = %v", len(comments), err)
+	}
+	var reactions int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM reactions WHERE target_type = 'comment'`).Scan(&reactions); err != nil {
+		t.Fatalf("count reactions: %v", err)
+	}
+	if reactions != 0 {
+		t.Fatalf("reply reactions left behind: %d", reactions)
+	}
+}
+
+func TestLockdownAndRecordedVisitors(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer st.Close()
+
+	if on, err := st.LockdownEnabled(); err != nil || on {
+		t.Fatalf("initial lockdown = %v, err = %v", on, err)
+	}
+	if seen, err := st.IsRecordedVisitor("198.51.100.1"); err != nil || seen {
+		t.Fatalf("initial recorded = %v, err = %v", seen, err)
+	}
+
+	if err := st.RecordVisitor("198.51.100.1"); err != nil {
+		t.Fatalf("record visitor: %v", err)
+	}
+	if err := st.RecordVisitor("198.51.100.1"); err != nil {
+		t.Fatalf("record visitor again: %v", err)
+	}
+	if seen, err := st.IsRecordedVisitor("198.51.100.1"); err != nil || !seen {
+		t.Fatalf("recorded = %v, err = %v", seen, err)
+	}
+	if seen, err := st.IsRecordedVisitor("198.51.100.2"); err != nil || seen {
+		t.Fatalf("unknown recorded = %v, err = %v", seen, err)
+	}
+
+	if err := st.SetLockdown(true); err != nil {
+		t.Fatalf("enable lockdown: %v", err)
+	}
+	if on, err := st.LockdownEnabled(); err != nil || !on {
+		t.Fatalf("lockdown = %v, err = %v", on, err)
+	}
+	if err := st.SetLockdown(false); err != nil {
+		t.Fatalf("disable lockdown: %v", err)
+	}
+	if on, err := st.LockdownEnabled(); err != nil || on {
+		t.Fatalf("lockdown after disable = %v, err = %v", on, err)
+	}
+}

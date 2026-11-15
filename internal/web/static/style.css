@@ -245,6 +245,8 @@ textarea { width: 100%; resize: vertical; }
 .comment { padding: 10px 0; border-top: 1px dashed var(--line); }
 .comment-head { margin-bottom: 4px; font-size: 13px; }
 .comment-body { line-height: 1.5; }
+.comment-reply { border-left: 2px solid var(--line); padding-left: 12px; }
+.comment-actions { display: flex; gap: 12px; align-items: center; margin-top: 6px; }
 .comment-form { margin-top: 20px; }
 
 .profile { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 24px; }

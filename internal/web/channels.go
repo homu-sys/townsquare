@@ -19,6 +19,8 @@ var channelCatalog = []ChannelInfo{
 	{Slug: "general", Name: "General", Description: "Everything that does not fit elsewhere."},
 	{Slug: "memes", Name: "Memes", Description: "Jokes, images, and internet debris."},
 	{Slug: "daily", Name: "Daily", Description: "What are you up to today?"},
+	{Slug: "suggestions", Name: "Suggestions", Description: "Ideas, requests, and feedback for the town."},
+	{Slug: "hall-of-shame", Name: "Hall of Shame", Description: "The town's most regrettable posts."},
 	{Slug: "nsfw", Name: "NSFW (18+)", Description: "Adult and graphic content. 18+ only.", NSFW: true},
 }
 

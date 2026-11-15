@@ -65,7 +65,7 @@ func Load() Config {
 		DMBlocklist:        listEnv("TS_DM_BLOCKLIST"),
 		SessionTTL:         30 * 24 * time.Hour,
 		ImageModeration:    imageModeration,
-		ImageNSFWThreshold: floatEnv("TS_IMAGE_NSFW_THRESHOLD", 0.60),
+		ImageNSFWThreshold: floatEnv("TS_IMAGE_NSFW_THRESHOLD", 0.85),
 		ImageGoreThreshold: floatEnv("TS_IMAGE_GORE_THRESHOLD", 0.60),
 	}
 }

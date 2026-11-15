@@ -26,19 +26,23 @@
 {{if .Comments}}
 <div class="comments">
 {{range .Comments}}
-  <div class="comment" id="comment-{{.ID}}">
+  <div class="comment{{if .Indent}} comment-reply{{end}}" id="comment-{{.ID}}"{{if .Indent}} style="margin-left: {{.Indent}}em"{{end}}>
     <div class="comment-head">
       <a href="/users/{{.AuthorUsername}}">{{.AuthorDisplayName}}</a>{{if eq .AuthorRole "admin"}} <span class="tag">admin</span>{{end}}
       <span class="date">{{fdate .CreatedAt}}</span>
+      {{if .ReplyToUsername}}<span class="small">in reply to <a href="#comment-{{.ParentID}}">@{{.ReplyToUsername}}</a></span>{{end}}
     </div>
     <div class="comment-body">{{safeHTML .BodyHTML}}</div>
     {{template "reaction_bar" .Reactions}}
+    <div class="comment-actions">
+    {{if $.LoggedIn}}<a class="small" href="/posts/{{$.Post.ID}}?reply={{.ID}}#comment-form">reply</a>{{end}}
     {{if .CanDelete}}
     <form method="post" action="/comments/{{.ID}}/delete" class="inline">
     {{template "csrf" $}}
     <button type="submit" class="link danger">delete</button>
     </form>
     {{end}}
+    </div>
   </div>
 {{end}}
 </div>
@@ -46,12 +50,16 @@
 <p class="empty">No comments yet.</p>
 {{end}}
 {{if .LoggedIn}}
-<form method="post" action="/posts/{{.Post.ID}}/comments" class="stack comment-form">
+<form method="post" action="/posts/{{.Post.ID}}/comments" class="stack comment-form" id="comment-form">
 {{template "csrf" .}}
-<label>Add a comment<br>
+{{if .ReplyTo}}
+<input type="hidden" name="parent_id" value="{{.ReplyTo.ID}}">
+<p class="small">Replying to <a href="/users/{{.ReplyTo.AuthorUsername}}">@{{.ReplyTo.AuthorDisplayName}}</a> &middot; <a href="/posts/{{.Post.ID}}#comments">cancel</a></p>
+{{end}}
+<label>{{if .ReplyTo}}Your reply{{else}}Add a comment{{end}}<br>
 <textarea name="body" rows="5" required></textarea></label>
 {{template "emoji_picker" .}}
-<button type="submit" class="button">Post comment</button>
+<button type="submit" class="button">{{if .ReplyTo}}Post reply{{else}}Post comment{{end}}</button>
 </form>
 {{else}}
 <p class="small"><a href="/login?next=/posts/{{.Post.ID}}">Log in</a> to comment.</p>

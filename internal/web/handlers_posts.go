@@ -108,6 +108,63 @@ func (s *Server) postCreate(w http.ResponseWriter, r *http.Request) {
 	redirect(w, r, "/posts/"+p.ID)
 }
 
+func (s *Server) commentViews(r *http.Request, p *store.Post, comments []store.Comment) []CommentView {
+	u := userFrom(r)
+	index := make(map[string]int, len(comments))
+	views := make([]CommentView, len(comments))
+	for i, c := range comments {
+		canDelete := u != nil && (u.Role == "admin" || u.ID == c.AuthorID || u.ID == p.AuthorID)
+		views[i] = CommentView{
+			Comment:   c,
+			CanDelete: canDelete,
+			Reactions: s.reactionView(r, "comment", c.ID, "/posts/"+p.ID+"#comment-"+c.ID),
+		}
+		index[c.ID] = i
+	}
+
+	children := make(map[string][]int, len(comments))
+	roots := make([]int, 0, len(comments))
+	for i := range views {
+		parentID := views[i].ParentID
+		parentIndex, ok := index[parentID]
+		if parentID == "" || !ok {
+			roots = append(roots, i)
+			continue
+		}
+		views[i].ReplyToUsername = views[parentIndex].AuthorUsername
+		views[i].ReplyToDisplayName = views[parentIndex].AuthorDisplayName
+		children[parentID] = append(children[parentID], i)
+	}
+
+	out := make([]CommentView, 0, len(views))
+	seen := make([]bool, len(views))
+	var walk func(int, int)
+	walk = func(i, depth int) {
+		if seen[i] {
+			return
+		}
+		seen[i] = true
+		views[i].Depth = depth
+		views[i].Indent = depth
+		if views[i].Indent > 6 {
+			views[i].Indent = 6
+		}
+		out = append(out, views[i])
+		for _, child := range children[views[i].ID] {
+			walk(child, depth+1)
+		}
+	}
+	for _, i := range roots {
+		walk(i, 0)
+	}
+	for i := range views {
+		if !seen[i] {
+			walk(i, 0)
+		}
+	}
+	return out
+}
+
 func (s *Server) postView(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	p, err := s.store.GetPost(id)
@@ -130,18 +187,21 @@ func (s *Server) postView(w http.ResponseWriter, r *http.Request) {
 	}
 	u := userFrom(r)
 	page := s.newPage(r)
-	views := make([]CommentView, 0, len(comments))
-	for _, c := range comments {
-		canDelete := u != nil && (u.Role == "admin" || u.ID == c.AuthorID || u.ID == p.AuthorID)
-		views = append(views, CommentView{
-			Comment:   c,
-			CanDelete: canDelete,
-			Reactions: s.reactionView(r, "comment", c.ID, "/posts/"+p.ID+"#comment-"+c.ID),
-		})
-	}
 	page.Heading = p.Title
 	page.Post = p
-	page.Comments = views
+	page.Comments = s.commentViews(r, p, comments)
+	if replyID := r.URL.Query().Get("reply"); replyID != "" {
+		for i := range comments {
+			if comments[i].ID == replyID {
+				page.ReplyTo = &ReplyTarget{
+					ID:                comments[i].ID,
+					AuthorUsername:    comments[i].AuthorUsername,
+					AuthorDisplayName: comments[i].AuthorDisplayName,
+				}
+				break
+			}
+		}
+	}
 	page.PostReactions = s.reactionView(r, "post", p.ID, "/posts/"+p.ID)
 	page.PostTags, _ = s.store.ListPostTags(p.ID)
 	page.CanEdit = canManagePost(u, p)
@@ -296,8 +356,18 @@ func (s *Server) commentCreate(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, "/posts/"+p.ID+"#comments")
 		return
 	}
+	parentID := strings.TrimSpace(r.PostFormValue("parent_id"))
+	if parentID != "" {
+		parent, err := s.store.GetComment(parentID)
+		if err != nil || parent.PostID != p.ID {
+			s.setFlash(w, "That comment is no longer available to reply to.")
+			redirect(w, r, "/posts/"+p.ID+"#comments")
+			return
+		}
+	}
 	c := &store.Comment{
 		PostID:   p.ID,
+		ParentID: parentID,
 		AuthorID: u.ID,
 		BodyMD:   body,
 		BodyHTML: markdown.Render(body),
@@ -307,7 +377,7 @@ func (s *Server) commentCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.setFlash(w, "Comment added.")
-	redirect(w, r, "/posts/"+p.ID+"#comments")
+	redirect(w, r, "/posts/"+p.ID+"#comment-"+c.ID)
 }
 
 func (s *Server) commentDelete(w http.ResponseWriter, r *http.Request) {

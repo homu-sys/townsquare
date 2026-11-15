@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"townsquare/internal/config"
@@ -25,6 +26,8 @@ type Server struct {
 	dmLimiter       *rateLimiter
 	reactionLimiter *rateLimiter
 	avatarChecker   moderation.Checker
+	lockdown        atomic.Bool
+	flood           *floodGuard
 }
 
 func New(cfg config.Config, st *store.Store) (*Server, error) {
@@ -45,7 +48,13 @@ func New(cfg config.Config, st *store.Store) (*Server, error) {
 		apiLimiter:      newRateLimiter(60, time.Minute),
 		dmLimiter:       newRateLimiter(30, time.Minute),
 		reactionLimiter: newRateLimiter(120, time.Minute),
+		flood:           newFloodGuard(),
 	}
+	locked, err := st.LockdownEnabled()
+	if err != nil {
+		log.Printf("warning: could not read attack mode: %v", err)
+	}
+	s.lockdown.Store(locked)
 	if cfg.ImageModeration {
 		checker, err := moderation.New()
 		if err != nil {
@@ -60,6 +69,7 @@ func New(cfg config.Config, st *store.Store) (*Server, error) {
 
 func (s *Server) Handler() http.Handler {
 	var h http.Handler = s.mux
+	h = s.attackMode(h)
 	h = s.loadSession(h)
 	h = s.securityHeaders(h)
 	h = s.limitRequestBody(h)
@@ -142,6 +152,8 @@ func (s *Server) routes(staticFS fs.FS) {
 	mux.HandleFunc("POST /messages/{username}", s.limitHTML(s.dmLimiter, s.messageSend))
 
 	mux.HandleFunc("GET /admin", s.adminDashboard)
+	mux.HandleFunc("POST /admin/lockdown", s.adminLockdownEnable)
+	mux.HandleFunc("POST /admin/lockdown/disable", s.adminLockdownDisable)
 	mux.HandleFunc("GET /admin/news", s.adminNews)
 	mux.HandleFunc("POST /admin/news", s.adminNewsCreate)
 	mux.HandleFunc("POST /admin/news/{id}/edit", s.adminNewsUpdate)

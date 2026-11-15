@@ -339,6 +339,48 @@ func TestAPIRequiresTokenAndCreatesPost(t *testing.T) {
 		t.Fatalf("API post channel = %q, want general", created.Post.Channel)
 	}
 
+	commentReq := func(payload string) *http.Response {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/posts/"+created.Post.ID+"/comments", strings.NewReader(payload))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("API comment: %v", err)
+		}
+		return resp
+	}
+
+	resp = commentReq(`{"body":"root comment"}`)
+	wantStatus(t, resp, http.StatusCreated)
+	var createdComment struct {
+		Comment apiComment `json:"comment"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&createdComment); err != nil {
+		t.Fatalf("decode created comment: %v", err)
+	}
+	resp.Body.Close()
+	if createdComment.Comment.ID == "" || createdComment.Comment.ParentID != "" {
+		t.Fatalf("unexpected created comment: %+v", createdComment.Comment)
+	}
+
+	resp = commentReq(`{"body":"reply","parent_id":"` + createdComment.Comment.ID + `"}`)
+	wantStatus(t, resp, http.StatusCreated)
+	var createdReply struct {
+		Comment apiComment `json:"comment"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&createdReply); err != nil {
+		t.Fatalf("decode created reply: %v", err)
+	}
+	resp.Body.Close()
+	if createdReply.Comment.ParentID != createdComment.Comment.ID {
+		t.Fatalf("API reply parent = %q, want %q", createdReply.Comment.ParentID, createdComment.Comment.ID)
+	}
+
+	resp = commentReq(`{"body":"orphan","parent_id":"missing"}`)
+	wantStatus(t, resp, http.StatusBadRequest)
+	resp.Body.Close()
+
 	for _, tc := range []struct {
 		name    string
 		payload string
@@ -1071,6 +1113,132 @@ func TestHashtagsAndReactions(t *testing.T) {
 	}
 }
 
+func TestCommentReplies(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	hash, err := auth.HashPassword("correct horse battery")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	alice := &store.User{Username: "alice", DisplayName: "Alice", PasswordHash: hash, Role: "admin"}
+	bob := &store.User{Username: "bob", DisplayName: "Bob", PasswordHash: hash, Role: "user"}
+	for _, u := range []*store.User{alice, bob} {
+		if err := st.CreateUser(u); err != nil {
+			t.Fatalf("create %s: %v", u.Username, err)
+		}
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	aliceClient := loginClient(t, ts.URL, "alice", "correct horse battery")
+
+	resp := httpPostForm(t, aliceClient, ts.URL, ts.URL+"/new", url.Values{
+		"title": {"Thread test"},
+		"body":  {"A post for replies."},
+	})
+	wantStatus(t, resp, http.StatusSeeOther)
+	postID := strings.TrimPrefix(resp.Header.Get("Location"), "/posts/")
+	resp.Body.Close()
+
+	resp = httpPostForm(t, aliceClient, ts.URL, ts.URL+"/posts/"+postID+"/comments", url.Values{
+		"body": {"Root comment."},
+	})
+	wantStatus(t, resp, http.StatusSeeOther)
+	resp.Body.Close()
+	comments, err := st.ListComments(postID)
+	if err != nil || len(comments) != 1 {
+		t.Fatalf("comments after root = %d, err = %v", len(comments), err)
+	}
+	rootID := comments[0].ID
+
+	resp = httpPostForm(t, aliceClient, ts.URL, ts.URL+"/posts/"+postID+"/comments", url.Values{
+		"body":      {"First reply."},
+		"parent_id": {rootID},
+	})
+	wantStatus(t, resp, http.StatusSeeOther)
+	location := resp.Header.Get("Location")
+	resp.Body.Close()
+	comments, err = st.ListComments(postID)
+	if err != nil || len(comments) != 2 {
+		t.Fatalf("comments after reply = %d, err = %v", len(comments), err)
+	}
+	var reply store.Comment
+	for _, c := range comments {
+		if c.ParentID == rootID {
+			reply = c
+		}
+	}
+	if reply.ID == "" {
+		t.Fatalf("reply has no parent: %+v", comments)
+	}
+	if !strings.HasSuffix(location, "#comment-"+reply.ID) {
+		t.Fatalf("reply redirect = %q, want anchor for %s", location, reply.ID)
+	}
+
+	resp = httpPostForm(t, aliceClient, ts.URL, ts.URL+"/posts/"+postID+"/comments", url.Values{
+		"body":      {"Nested reply."},
+		"parent_id": {reply.ID},
+	})
+	wantStatus(t, resp, http.StatusSeeOther)
+	resp.Body.Close()
+	comments, err = st.ListComments(postID)
+	if err != nil || len(comments) != 3 {
+		t.Fatalf("comments after nested reply = %d, err = %v", len(comments), err)
+	}
+
+	resp = httpGet(t, aliceClient, ts.URL+"/posts/"+postID)
+	wantStatus(t, resp, http.StatusOK)
+	body := bodyOf(t, resp)
+	for _, want := range []string{
+		"in reply to",
+		`style="margin-left: 1em"`,
+		`style="margin-left: 2em"`,
+		"?reply=" + rootID,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("post page missing %q: %s", want, body)
+		}
+	}
+
+	resp = httpGet(t, aliceClient, ts.URL+"/posts/"+postID+"?reply="+rootID)
+	wantStatus(t, resp, http.StatusOK)
+	body = bodyOf(t, resp)
+	for _, want := range []string{
+		`name="parent_id" value="` + rootID + `"`,
+		"Replying to",
+		"Post reply",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("reply form missing %q: %s", want, body)
+		}
+	}
+
+	other := &store.Post{AuthorID: alice.ID, Channel: "general", Title: "Other", BodyMD: "other", BodyHTML: "<p>other</p>"}
+	if err := st.CreatePost(other); err != nil {
+		t.Fatalf("create other post: %v", err)
+	}
+	otherComment := &store.Comment{PostID: other.ID, AuthorID: alice.ID, BodyMD: "elsewhere", BodyHTML: "<p>elsewhere</p>"}
+	if err := st.CreateComment(otherComment); err != nil {
+		t.Fatalf("create other comment: %v", err)
+	}
+	resp = httpPostForm(t, aliceClient, ts.URL, ts.URL+"/posts/"+postID+"/comments", url.Values{
+		"body":      {"Wrong thread."},
+		"parent_id": {otherComment.ID},
+	})
+	wantStatus(t, resp, http.StatusSeeOther)
+	resp.Body.Close()
+	comments, err = st.ListComments(postID)
+	if err != nil || len(comments) != 3 {
+		t.Fatalf("cross-post reply created a comment: %d, err = %v", len(comments), err)
+	}
+
+	resp = httpPostForm(t, aliceClient, ts.URL, ts.URL+"/comments/"+rootID+"/delete", url.Values{})
+	wantStatus(t, resp, http.StatusSeeOther)
+	resp.Body.Close()
+	comments, err = st.ListComments(postID)
+	if err != nil || len(comments) != 0 {
+		t.Fatalf("comments after deleting root = %d, err = %v", len(comments), err)
+	}
+}
+
 func TestVisitorCounterCountsUniqueIPs(t *testing.T) {
 	srv, st, _ := newTestServer(t)
 	srv.cfg.TrustProxy = true
@@ -1300,6 +1468,52 @@ func TestAvatarModerationRejectsUnsafeImage(t *testing.T) {
 	}
 }
 
+func TestSuggestionAndShameChannels(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	hash, err := auth.HashPassword("correct horse battery")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	alice := &store.User{Username: "alice", DisplayName: "Alice", PasswordHash: hash, Role: "user"}
+	if err := st.CreateUser(alice); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	c := loginClient(t, ts.URL, "alice", "correct horse battery")
+
+	for _, tc := range []struct {
+		slug  string
+		title string
+	}{
+		{"suggestions", "A good idea"},
+		{"hall-of-shame", "A regrettable post"},
+	} {
+		resp := httpPostForm(t, c, ts.URL, ts.URL+"/new", url.Values{
+			"title":   {tc.title},
+			"body":    {"channel test"},
+			"channel": {tc.slug},
+		})
+		wantStatus(t, resp, http.StatusSeeOther)
+		resp.Body.Close()
+
+		resp = httpGet(t, c, ts.URL+"/c/"+tc.slug)
+		wantStatus(t, resp, http.StatusOK)
+		if body := bodyOf(t, resp); !strings.Contains(body, tc.title) {
+			t.Fatalf("channel %s missing %q: %s", tc.slug, tc.title, body)
+		}
+	}
+
+	resp := httpGet(t, c, ts.URL+"/channels")
+	wantStatus(t, resp, http.StatusOK)
+	body := bodyOf(t, resp)
+	for _, want := range []string{"Suggestions", "Hall of Shame", "/c/suggestions", "/c/hall-of-shame"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("channels page missing %q: %s", want, body)
+		}
+	}
+}
+
 func TestChannelsAndNSFWHiding(t *testing.T) {
 	srv, st, _ := newTestServer(t)
 	hash, err := auth.HashPassword("correct horse battery")
@@ -1526,4 +1740,169 @@ func TestAdminNewsTicker(t *testing.T) {
 	})
 	wantStatus(t, resp, http.StatusForbidden)
 	resp.Body.Close()
+}
+
+func newProxyTestServer(t *testing.T) (*Server, *store.Store) {
+	t.Helper()
+	dir := t.TempDir()
+	cfg := config.Config{
+		Addr:          ":0",
+		DBPath:        filepath.Join(dir, "test.db"),
+		BaseURL:       "http://example.test",
+		SiteName:      "Test Town",
+		Tagline:       "a test instance",
+		SecureCookies: false,
+		AllowSetup:    true,
+		SessionTTL:    time.Hour,
+		TrustProxy:    true,
+	}
+	st, err := store.Open(cfg.DBPath)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+	srv, err := New(cfg, st)
+	if err != nil {
+		t.Fatalf("new server: %v", err)
+	}
+	return srv, st
+}
+
+func ipGet(t *testing.T, c *http.Client, target, ip string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, target, nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("X-Forwarded-For", ip)
+	resp, err := c.Do(req)
+	if err != nil {
+		t.Fatalf("GET %s as %s: %v", target, ip, err)
+	}
+	return resp
+}
+
+func ipPostForm(t *testing.T, c *http.Client, base, target, ip string, values url.Values) *http.Response {
+	t.Helper()
+	values.Set("_csrf", csrfFor(t, c, base))
+	req, err := http.NewRequest(http.MethodPost, target, strings.NewReader(values.Encode()))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-Forwarded-For", ip)
+	resp, err := c.Do(req)
+	if err != nil {
+		t.Fatalf("POST %s as %s: %v", target, ip, err)
+	}
+	return resp
+}
+
+func TestAttackModeManual(t *testing.T) {
+	srv, st := newProxyTestServer(t)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	admin := newTestClient(t)
+	setupAdmin(t, admin, ts.URL)
+
+	recorded := "198.51.100.7"
+	resp := ipGet(t, newTestClient(t), ts.URL+"/", recorded)
+	wantStatus(t, resp, http.StatusOK)
+	resp.Body.Close()
+
+	resp = httpPostForm(t, admin, ts.URL, ts.URL+"/admin/lockdown", url.Values{})
+	wantStatus(t, resp, http.StatusSeeOther)
+	resp.Body.Close()
+
+	if !srv.lockdown.Load() {
+		t.Fatalf("attack mode did not turn on")
+	}
+	if on, err := st.LockdownEnabled(); err != nil || !on {
+		t.Fatalf("stored lockdown = %v, err = %v", on, err)
+	}
+
+	resp = ipGet(t, newTestClient(t), ts.URL+"/", recorded)
+	wantStatus(t, resp, http.StatusOK)
+	resp.Body.Close()
+
+	stranger := "203.0.113.9"
+	resp = ipGet(t, newTestClient(t), ts.URL+"/", stranger)
+	wantStatus(t, resp, http.StatusServiceUnavailable)
+	if body := bodyOf(t, resp); !strings.Contains(body, "This website is under attack.") {
+		t.Fatalf("attack page missing message: %s", body)
+	}
+
+	resp = ipGet(t, admin, ts.URL+"/", stranger)
+	wantStatus(t, resp, http.StatusOK)
+	resp.Body.Close()
+
+	resp = ipGet(t, newTestClient(t), ts.URL+"/healthz", stranger)
+	wantStatus(t, resp, http.StatusOK)
+	resp.Body.Close()
+	resp = ipGet(t, newTestClient(t), ts.URL+"/static/style.css", stranger)
+	wantStatus(t, resp, http.StatusOK)
+	resp.Body.Close()
+	resp = ipGet(t, newTestClient(t), ts.URL+"/api/v1/site", "203.0.113.11")
+	wantStatus(t, resp, http.StatusServiceUnavailable)
+	resp.Body.Close()
+
+	resp = httpPostForm(t, admin, ts.URL, ts.URL+"/admin/lockdown/disable", url.Values{})
+	wantStatus(t, resp, http.StatusSeeOther)
+	resp.Body.Close()
+
+	resp = ipGet(t, newTestClient(t), ts.URL+"/", stranger)
+	wantStatus(t, resp, http.StatusOK)
+	resp.Body.Close()
+}
+
+func TestAttackModeAutomatic(t *testing.T) {
+	old := autoLockdownThreshold
+	autoLockdownThreshold = 3
+	defer func() { autoLockdownThreshold = old }()
+
+	srv, _ := newProxyTestServer(t)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	admin := newTestClient(t)
+	setupAdmin(t, admin, ts.URL)
+
+	recorded := "198.51.100.20"
+	resp := ipGet(t, newTestClient(t), ts.URL+"/", recorded)
+	wantStatus(t, resp, http.StatusOK)
+	resp.Body.Close()
+
+	attacker := "203.0.113.50"
+	c := newTestClient(t)
+	resp = ipGet(t, c, ts.URL+"/login", attacker)
+	wantStatus(t, resp, http.StatusOK)
+	resp.Body.Close()
+
+	for i := 0; i < 20 && !srv.lockdown.Load(); i++ {
+		resp = ipPostForm(t, c, ts.URL, ts.URL+"/login", attacker, url.Values{
+			"login":    {"attacker"},
+			"password": {"wrong password"},
+		})
+		resp.Body.Close()
+	}
+	if !srv.lockdown.Load() {
+		t.Fatalf("attack mode did not turn on automatically")
+	}
+
+	resp = ipGet(t, newTestClient(t), ts.URL+"/", attacker)
+	wantStatus(t, resp, http.StatusServiceUnavailable)
+	resp.Body.Close()
+
+	resp = ipGet(t, newTestClient(t), ts.URL+"/", recorded)
+	wantStatus(t, resp, http.StatusOK)
+	resp.Body.Close()
+
+	resp = ipGet(t, newTestClient(t), ts.URL+"/", "203.0.113.99")
+	wantStatus(t, resp, http.StatusServiceUnavailable)
+	resp.Body.Close()
+
+	if err := srv.disableLockdown(); err != nil {
+		t.Fatalf("disable lockdown: %v", err)
+	}
 }

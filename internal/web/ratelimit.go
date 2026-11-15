@@ -91,8 +91,10 @@ func retryAfter(d time.Duration) string {
 
 func (s *Server) limitHTML(l *rateLimiter, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ok, retry := l.Allow(s.clientIP(r))
+		ip := s.clientIP(r)
+		ok, retry := l.Allow(ip)
 		if !ok {
+			s.noteRateLimited(ip)
 			w.Header().Set("Retry-After", retryAfter(retry))
 			s.renderError(w, r, http.StatusTooManyRequests, "Too many attempts. Please wait and try again.")
 			return
@@ -103,8 +105,10 @@ func (s *Server) limitHTML(l *rateLimiter, next http.HandlerFunc) http.HandlerFu
 
 func (s *Server) limitAPI(l *rateLimiter, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ok, retry := l.Allow(s.clientIP(r))
+		ip := s.clientIP(r)
+		ok, retry := l.Allow(ip)
 		if !ok {
+			s.noteRateLimited(ip)
 			w.Header().Set("Retry-After", retryAfter(retry))
 			apiError(w, http.StatusTooManyRequests, "too many requests")
 			return

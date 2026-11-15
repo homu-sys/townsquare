@@ -8,15 +8,19 @@ only a tiny local script for the emoji picker.
 Version 1 is a single instance. Version 2 will add ActivityPub federation between
 independently hosted towns.
 
+![Townsquare screenshot](docs/screenshot.png)
+
 ## Features
 
 - Profiles with bios, join dates, and locally moderated avatar photos
-- Channels: general, memes, daily, and an 18+ NSFW channel behind a warning
+- Channels: general, memes, daily, suggestions, hall of shame, and an 18+ NSFW channel
+  behind a warning
 - Invite-only registration; email addresses are optional
-- Markdown posts and comments, sanitized before rendering
+- Markdown posts and threaded comments, sanitized before rendering
 - Emoji picker and reactions; hashtags with tag filtering
 - Direct messages with optional blocked-term monitoring
 - Rate limiting, CSRF protection, one-time recovery codes, and admin reset links
+- Attack mode: automatic flood lockdown that admits only previously recorded IPs and admins
 - Admin panel: stats, invites, users, post moderation, blocked DMs, and a news ticker
 - Public read API, Bearer-token write API, RSS feeds, and Open Graph metadata
 - SQLite storage (WAL); a single Go binary with no external services
@@ -62,7 +66,7 @@ Behind an HTTPS reverse proxy, set `TS_SECURE_COOKIES=true` and `TS_TRUST_PROXY=
 | `TS_ALLOW_REMOTE_IMAGES` | `false` | Allow images hosted on other domains in Markdown |
 | `TS_DM_BLOCKLIST` | empty | Comma-separated terms that block and flag a direct message |
 | `TS_IMAGE_MODERATION` | `true` | Check avatar uploads with the embedded image safety model |
-| `TS_IMAGE_NSFW_THRESHOLD` | `0.60` | Score at which an avatar is rejected as adult content |
+| `TS_IMAGE_NSFW_THRESHOLD` | `0.85` | Score at which an avatar is rejected as adult content |
 | `TS_IMAGE_GORE_THRESHOLD` | `0.60` | Score at which an avatar is rejected as graphic violence |
 
 By default the base URL comes from the request `Host` header. Set `TS_BASE_URL` to force one
@@ -95,7 +99,8 @@ curl -X DELETE http://localhost:8090/api/v1/posts/<id> \
 ```
 
 Post bodies are Markdown. Responses include `body` and rendered `body_html`. NSFW posts are
-web-only and hidden from all public API reads.
+web-only and hidden from all public API reads. Comment writes accept `body` and an optional
+`parent_id`; comment reads include `parent_id` for replies.
 
 ## Development
 
@@ -122,6 +127,9 @@ internal/web          HTTP routes, handlers, templates, static CSS
 
 - Passwords use bcrypt; sessions are random, server-side, and expire after 30 days.
 - Login, registration, recovery, reset, setup, and API writes are rate-limited.
+- Attack mode enables automatically after a sustained burst of rate-limited requests, and can be
+  toggled by an admin. While active, only IPs recorded by the visitor counter, signed-in admins,
+  and localhost may enter; everyone else gets a 503 "This website is under attack." page.
 - All forms use a CSRF token; cookies are `HttpOnly` and `SameSite=Lax`.
 - Markdown is sanitized with bluemonday before it reaches a template.
 - Avatars are decoded, cropped, resized, and re-encoded to PNG. Original uploads and SVG
@@ -141,3 +149,7 @@ live copy, use `sqlite3 townsquare.db ".backup backup.db"`.
 3. Follow relationships and a delivery queue for posts and comments.
 4. NodeInfo discovery and moderation tools.
 5. Compatibility with the wider ActivityPub ecosystem where possible.
+
+## License
+
+AGPL-3.0-or-later. See [LICENSE](LICENSE).

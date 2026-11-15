@@ -71,6 +71,13 @@ func (s *Server) apiNotFound(w http.ResponseWriter, r *http.Request) {
 	apiError(w, http.StatusNotFound, "no such API endpoint")
 }
 
+func (s *Server) apiDocs(w http.ResponseWriter, r *http.Request) {
+	page := s.newPage(r)
+	page.Heading = "API"
+	page.Description = "JSON API documentation for " + s.cfg.SiteName
+	s.render(w, r, http.StatusOK, "api.html", page)
+}
+
 func (s *Server) apiUserToDTO(u *store.User, base string) apiUser {
 	return apiUser{
 		ID:          u.ID,
@@ -143,6 +150,7 @@ func (s *Server) apiSite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	hits, _ := s.store.GetHits()
+	visitors, _ := s.store.CountVisitors()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"name":     s.cfg.SiteName,
 		"tagline":  s.cfg.Tagline,
@@ -152,6 +160,7 @@ func (s *Server) apiSite(w http.ResponseWriter, r *http.Request) {
 		"posts":    posts,
 		"comments": comments,
 		"hits":     hits,
+		"visitors": visitors,
 	})
 }
 
@@ -381,7 +390,7 @@ func (s *Server) apiDeletePost(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusNotFound, "no such post")
 		return
 	}
-	if u.Role != "admin" && u.ID != p.AuthorID {
+	if !u.IsStaff() && u.ID != p.AuthorID {
 		apiError(w, http.StatusForbidden, "you cannot delete that post")
 		return
 	}

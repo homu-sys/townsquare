@@ -55,7 +55,7 @@ func (s *Server) canViewNSFW(r *http.Request) bool {
 		return true
 	}
 	u := userFrom(r)
-	return u != nil && u.Role == "admin"
+	return u != nil && u.IsStaff()
 }
 
 func (s *Server) setAdultOK(w http.ResponseWriter) {
@@ -99,12 +99,13 @@ func (s *Server) channelView(w http.ResponseWriter, r *http.Request) {
 
 	const limit = 20
 	pageNum := pageParam(r)
-	posts, err := s.store.ListPostsByChannel(ch.Slug, limit+1, (pageNum-1)*limit)
+	posts, err := s.store.ListPostsByChannelFor(viewerID(r), ch.Slug, limit+1, (pageNum-1)*limit)
 	if err != nil {
 		s.renderError(w, r, http.StatusInternalServerError, "Could not read posts.")
 		return
 	}
 	posts, hasNext := trimPage(posts, limit)
+	s.markPosts(r, posts)
 
 	base := "/c/" + ch.Slug
 	page := s.newPage(r)

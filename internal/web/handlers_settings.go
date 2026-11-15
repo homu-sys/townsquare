@@ -17,6 +17,8 @@ func (s *Server) settingsForm(w http.ResponseWriter, r *http.Request) {
 	page.Heading = "Settings"
 	page.Form = map[string]string{"display_name": u.DisplayName, "bio": u.Bio}
 	page.RecoveryCodeCount, _ = s.store.CountRecoveryCodes(u.ID)
+	page.MutedUsers, _ = s.store.ListMutedUsers(u.ID)
+	page.BlockedUsers, _ = s.store.ListBlockedUsers(u.ID)
 	s.render(w, r, http.StatusOK, "settings.html", page)
 }
 

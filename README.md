@@ -5,8 +5,8 @@ profiles, posts, comments, invite-only membership, an admin panel, and a public 
 The look is deliberately Web 1.0: tables, serif type, blue links, a visitor counter, and
 only a tiny local script for the emoji picker.
 
-Version 1 is a single instance. Version 2 will add ActivityPub federation between
-independently hosted towns.
+Version 1 is a single instance with a lightweight pull-based federation feed between
+independently hosted towns. Full ActivityPub federation is on the roadmap.
 
 ![Townsquare screenshot](docs/screenshot.png)
 
@@ -19,9 +19,13 @@ independently hosted towns.
 - Markdown posts and threaded comments, sanitized before rendering
 - Emoji picker and reactions; hashtags with tag filtering
 - Direct messages with optional blocked-term monitoring
+- Muting and blocking: hide people from feeds and comments, and close direct messages both ways
+- Private bookmarks and "new since your last visit" markers on posts and comments
 - Rate limiting, CSRF protection, one-time recovery codes, and admin reset links
-- Attack mode: automatic flood lockdown that admits only previously recorded IPs and admins
-- Admin panel: stats, invites, users, post moderation, blocked DMs, and a news ticker
+- Attack mode: automatic flood lockdown that admits only previously recorded IPs and signed-in staff
+- Roles: instance owner, admins, moderators, and members, with icons beside each name
+- Staff panel: stats, invites, users, post moderation, blocked DMs, and a news ticker
+- Pull-based federation: show recent public posts from other towns via `/federation/latest.json`
 - Public read API, Bearer-token write API, RSS feeds, and Open Graph metadata
 - SQLite storage (WAL); a single Go binary with no external services
 
@@ -64,13 +68,15 @@ Behind an HTTPS reverse proxy, set `TS_SECURE_COOKIES=true` and `TS_TRUST_PROXY=
 | `TS_IMAGE_MODERATION` | `true` | Check avatar uploads with the embedded image safety model |
 | `TS_IMAGE_NSFW_THRESHOLD` | `0.85` | Score at which an avatar is rejected as adult content |
 | `TS_IMAGE_GORE_THRESHOLD` | `0.60` | Score at which an avatar is rejected as graphic violence |
+| `TS_FEDERATION_INSTANCES` | empty | Comma-separated base URLs of other towns to pull posts from |
+| `TS_FEDERATION_INTERVAL` | `10m` | How often to refresh remote posts (minimum 1m) |
 
 By default the base URL comes from the request `Host` header. Set `TS_BASE_URL` to force one
-canonical hostname. Set `TS_ALLOW_SETUP=false` only after the admin account exists.
+canonical hostname. Set `TS_ALLOW_SETUP=false` only after the instance owner account exists.
 
 ## API
 
-Public reads need no authentication:
+Browsable endpoint documentation is served at `/api`. Public reads need no authentication:
 
 ```sh
 curl http://localhost:8090/api/v1/site
@@ -78,6 +84,7 @@ curl http://localhost:8090/api/v1/users
 curl http://localhost:8090/api/v1/posts
 curl http://localhost:8090/api/v1/posts/<id>
 curl http://localhost:8090/api/v1/posts/<id>/comments
+curl http://localhost:8090/federation/latest.json
 curl http://localhost:8090/api/v1/users/<username>/posts
 ```
 
@@ -124,7 +131,7 @@ internal/web          HTTP routes, handlers, templates, static CSS
 - Passwords use bcrypt; sessions are random, server-side, and expire after 30 days.
 - Login, registration, recovery, reset, setup, and API writes are rate-limited.
 - Attack mode enables automatically after a sustained burst of rate-limited requests, and can be
-  toggled by an admin. While active, only IPs recorded by the visitor counter, signed-in admins,
+  toggled by an admin. While active, only IPs recorded by the visitor counter, signed-in staff,
   and localhost may enter; everyone else gets a 503 "This website is under attack." page.
 - All forms use a CSRF token; cookies are `HttpOnly` and `SameSite=Lax`.
 - Markdown is sanitized with bluemonday before it reaches a template.

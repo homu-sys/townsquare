@@ -8,7 +8,7 @@
     <td class="avatar-cell">{{if .Avatar}}<img class="avatar avatar-small" src="data:image/png;base64,{{.Avatar}}" alt="{{.DisplayName}}" width="32" height="32">{{end}}</td>
     <td><a href="/users/{{.Username}}">{{.Username}}</a></td>
     <td>{{.DisplayName}}</td>
-    <td>{{.Role}}</td>
+    <td>{{if eq .Role "user"}}member{{else}}{{template "role_badge" .Role}}{{end}}</td>
     <td class="date">{{fday .CreatedAt}}</td>
   </tr>
   {{end}}

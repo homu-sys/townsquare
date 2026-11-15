@@ -27,6 +27,39 @@
 </div>
 
 <hr>
+<h3>Muted people</h3>
+{{if .MutedUsers}}
+<table class="stats">
+  <tr><th>Person</th><th></th></tr>
+  {{range .MutedUsers}}
+  <tr>
+    <td><a href="/users/{{.Username}}">{{.DisplayName}}</a> <span class="small">@{{.Username}}</span></td>
+    <td><form method="post" action="/users/{{.Username}}/unmute" class="inline">{{template "csrf" $}}<input type="hidden" name="next" value="/settings"><button type="submit" class="link">Unmute</button></form></td>
+  </tr>
+  {{end}}
+</table>
+{{else}}
+<p class="empty">You have not muted anyone.</p>
+{{end}}
+<p class="small">Muted people stay out of your feeds and comments, but can still message you.</p>
+
+<h3>Blocked people</h3>
+{{if .BlockedUsers}}
+<table class="stats">
+  <tr><th>Person</th><th></th></tr>
+  {{range .BlockedUsers}}
+  <tr>
+    <td><a href="/users/{{.Username}}">{{.DisplayName}}</a> <span class="small">@{{.Username}}</span></td>
+    <td><form method="post" action="/users/{{.Username}}/unblock" class="inline">{{template "csrf" $}}<input type="hidden" name="next" value="/settings"><button type="submit" class="link">Unblock</button></form></td>
+  </tr>
+  {{end}}
+</table>
+{{else}}
+<p class="empty">You have not blocked anyone.</p>
+{{end}}
+<p class="small">Blocked people are hidden and cannot exchange direct messages with you.</p>
+
+<hr>
 <h3>Password</h3>
 <form method="post" action="/settings/password" class="stack">
 {{template "csrf" .}}

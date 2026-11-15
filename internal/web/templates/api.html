@@ -1,0 +1,48 @@
+{{template "header" .}}
+<h2>API</h2>
+<p>Every town exposes a small JSON API. Reads are public; writes use a personal Bearer token.
+The base URL for this instance is <code>{{.BaseURL}}/api/v1</code>.</p>
+
+<h3>Authentication</h3>
+<p>Create a token under <a href="/settings">Settings</a>. It is shown once. Send it with write
+requests as <code>Authorization: Bearer &lt;token&gt;</code>. Write endpoints are rate-limited,
+and NSFW posts can only be created on the website.</p>
+
+<h3>Endpoints</h3>
+<table class="stats">
+  <tr><th>Method</th><th>Path</th><th>Description</th></tr>
+  <tr><td>GET</td><td><a href="/api/v1/site"><code>/api/v1/site</code></a></td><td>Site name, tagline, version, counts, page views, and unique visitors.</td></tr>
+  <tr><td>GET</td><td><a href="/api/v1/users"><code>/api/v1/users</code></a></td><td>Active users. Supports <code>limit</code> and <code>offset</code>.</td></tr>
+  <tr><td>GET</td><td><code>/api/v1/users/{username}</code></td><td>One user profile.</td></tr>
+  <tr><td>GET</td><td><code>/api/v1/users/{username}/posts</code></td><td>Posts by one user. Supports <code>limit</code> and <code>offset</code>.</td></tr>
+  <tr><td>GET</td><td><a href="/api/v1/posts"><code>/api/v1/posts</code></a></td><td>Recent public posts. Supports <code>limit</code> and <code>offset</code>.</td></tr>
+  <tr><td>GET</td><td><code>/api/v1/posts/{id}</code></td><td>One post with its comments.</td></tr>
+  <tr><td>GET</td><td><code>/api/v1/posts/{id}/comments</code></td><td>Comments for one post, oldest first.</td></tr>
+  <tr><td>POST</td><td><code>/api/v1/posts</code></td><td>Create a post. Bearer token required. JSON: <code>title</code>, <code>body</code>, optional <code>channel</code>.</td></tr>
+  <tr><td>DELETE</td><td><code>/api/v1/posts/{id}</code></td><td>Delete your own post, or any post as a moderator or admin. Bearer token required.</td></tr>
+  <tr><td>POST</td><td><code>/api/v1/posts/{id}/comments</code></td><td>Create a comment or reply. JSON: <code>body</code>, optional <code>parent_id</code>.</td></tr>
+</table>
+
+<h3>Pagination and format</h3>
+<p><code>limit</code> defaults to 20 and is capped at 100; <code>offset</code> defaults to 0.
+Timestamps are RFC 3339. Errors look like <code>{"error":"message"}</code> and use ordinary HTTP
+status codes. NSFW posts and blocked direct messages are not exposed by the public API.</p>
+
+<h3>Examples</h3>
+<pre>curl {{.BaseURL}}/api/v1/posts
+
+curl -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Hello","body":"First post from the API."}' \
+  {{.BaseURL}}/api/v1/posts
+
+curl -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"body":"A reply.","parent_id":"COMMENT_ID"}' \
+  {{.BaseURL}}/api/v1/posts/POST_ID/comments</pre>
+
+<h3>Other feeds</h3>
+<p><a href="/feed.xml">RSS</a> is available for the whole town and for each user. Other
+Townsquare instances can pull recent public posts from
+<a href="/federation/latest.json"><code>/federation/latest.json</code></a>.</p>
+{{template "footer" .}}

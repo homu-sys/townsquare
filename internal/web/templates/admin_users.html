@@ -9,7 +9,7 @@
   <tr>
     <td><a href="/users/{{.Username}}">{{.Username}}</a><br><span class="small">{{.DisplayName}}</span></td>
     <td class="small">{{if .Email}}{{.Email}}{{else}}&mdash;{{end}}</td>
-    <td>{{.Role}}</td>
+    <td>{{if eq .Role "user"}}member{{else}}{{template "role_badge" .Role}}{{end}}</td>
     <td>{{if .Disabled}}disabled{{else}}active{{end}}</td>
     <td class="date">{{fday .CreatedAt}}</td>
     <td class="actions">
@@ -22,15 +22,22 @@
         {{template "csrf" $}}
         <button type="submit" class="link">reset password</button>
         </form>
-        {{if eq .Role "admin"}}
+        {{if eq .Role "user"}}
+        <form method="post" action="/admin/users/{{.ID}}/moderate" class="inline">
+        {{template "csrf" $}}
+        <button type="submit" class="link">make moderator</button>
+        </form>
+        {{end}}
+        {{if ne .Role "admin"}}
+        <form method="post" action="/admin/users/{{.ID}}/promote" class="inline">
+        {{template "csrf" $}}
+        <button type="submit" class="link">make admin</button>
+        </form>
+        {{end}}
+        {{if ne .Role "user"}}
         <form method="post" action="/admin/users/{{.ID}}/demote" class="inline">
         {{template "csrf" $}}
         <button type="submit" class="link">demote</button>
-        </form>
-        {{else}}
-        <form method="post" action="/admin/users/{{.ID}}/promote" class="inline">
-        {{template "csrf" $}}
-        <button type="submit" class="link">promote</button>
         </form>
         {{end}}
       {{else}}

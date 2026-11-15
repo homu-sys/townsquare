@@ -1,0 +1,6 @@
+{{define "role_badge"}}
+{{if eq . "owner"}}<span class="role-badge owner" title="Instance owner"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M2 12h12l-1-7-3 3-2-4-2 4-3-3z"/></svg><span>owner</span></span>
+{{else if eq . "admin"}}<span class="role-badge admin" title="Administrator"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M8 1l6 2v5c0 3-2.5 5.5-6 7-3.5-1.5-6-4-6-7V3z"/></svg><span>admin</span></span>
+{{else if eq . "moderator"}}<span class="role-badge moderator" title="Moderator"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M7 1h2v10h3v1H4v-1h3V1zM3 4h10v1H3zM3 4L1 8h4L3 4zm10 0L11 8h4l-2-4z"/></svg><span>moderator</span></span>
+{{end}}
+{{end}}

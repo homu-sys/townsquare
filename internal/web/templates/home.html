@@ -11,4 +11,18 @@
 {{else}}
 <p class="empty">No posts yet.{{if .LoggedIn}} <a href="/new">Be the first to write something.</a>{{end}}</p>
 {{end}}
+{{if .RemotePosts}}
+<h2>From other towns</h2>
+<table class="posts">
+  <tr><th>Subject</th><th>Town</th><th class="num">Replies</th><th>Posted</th></tr>
+  {{range .RemotePosts}}
+  <tr>
+    <td><a href="{{.URL}}" rel="noopener noreferrer">{{.Title}}</a>{{if ne .Channel "general"}} <span class="tag">{{.Channel}}</span>{{end}}</td>
+    <td><a href="{{.Instance}}">{{.SiteName}}</a></td>
+    <td class="num">{{.CommentCount}}</td>
+    <td class="date">{{fdate .CreatedAt}}</td>
+  </tr>
+  {{end}}
+</table>
+{{end}}
 {{template "footer" .}}

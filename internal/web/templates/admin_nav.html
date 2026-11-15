@@ -1,10 +1,10 @@
 {{define "admin_nav"}}
 <div class="admin-nav">
-  <a href="/admin">Dashboard</a> |
-  <a href="/admin/news">News</a> |
-  <a href="/admin/invites">Invites</a> |
-  <a href="/admin/users">Users</a> |
-  <a href="/admin/posts">Posts</a> |
-  <a href="/admin/dms">Blocked DMs</a>
+  <a href="/admin">Dashboard</a>
+  {{if .IsAdmin}}| <a href="/admin/news">News</a>
+  | <a href="/admin/invites">Invites</a>
+  | <a href="/admin/users">Users</a>{{end}}
+  | <a href="/admin/posts">Posts</a>
+  | <a href="/admin/dms">Blocked DMs</a>
 </div>
 {{end}}

@@ -25,6 +25,7 @@ type StatsView struct {
 	Comments     int
 	ActiveAdmins int
 	Hits         int64
+	Visitors     int64
 }
 
 type CommentView struct {
@@ -34,6 +35,7 @@ type CommentView struct {
 	ReplyToUsername    string
 	ReplyToDisplayName string
 	CanDelete          bool
+	New                bool
 	Reactions          ReactionView
 }
 
@@ -59,9 +61,12 @@ type PageData struct {
 	NoIndex        bool
 	InviteRequired bool
 
-	User     *store.User
-	LoggedIn bool
-	IsAdmin  bool
+	User        *store.User
+	LoggedIn    bool
+	IsOwner     bool
+	IsAdmin     bool
+	IsModerator bool
+	IsStaff     bool
 
 	CSRFToken string
 	Flash     string
@@ -73,11 +78,17 @@ type PageData struct {
 	Post          *store.Post
 	Comments      []CommentView
 	ReplyTo       *ReplyTarget
+	Bookmarked    bool
 	Profile       *store.User
 	Peer          *store.User
+	Muted         bool
+	Blocked       bool
+	MutedUsers    []store.User
+	BlockedUsers  []store.User
 	Users         []store.User
 	Invites       []store.Invite
 	News          []store.NewsItem
+	RemotePosts   []store.RemotePost
 	Messages      []MessageView
 	Conversations []store.Conversation
 	BlockedDMs    []store.DirectMessage
@@ -173,7 +184,10 @@ func (s *Server) newPage(r *http.Request) PageData {
 		Path:           r.URL.Path,
 		User:           u,
 		LoggedIn:       u != nil,
-		IsAdmin:        u != nil && u.Role == "admin",
+		IsOwner:        u.IsOwner(),
+		IsAdmin:        u.IsAdmin(),
+		IsModerator:    u.IsModerator(),
+		IsStaff:        u.IsStaff(),
 		CSRFToken:      csrfFrom(r),
 		NoIndex:        sensitivePath(r.URL.Path),
 		InviteRequired: !s.cfg.OpenRegistration,
@@ -221,7 +235,10 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name
 		page.User = userFrom(r)
 	}
 	page.LoggedIn = page.User != nil
-	page.IsAdmin = page.LoggedIn && page.User.Role == "admin"
+	page.IsOwner = page.User.IsOwner()
+	page.IsAdmin = page.User.IsAdmin()
+	page.IsModerator = page.User.IsModerator()
+	page.IsStaff = page.User.IsStaff()
 	if page.CSRFToken == "" {
 		page.CSRFToken = csrfFrom(r)
 	}
@@ -245,6 +262,28 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	buf.WriteTo(w)
+}
+
+func (s *Server) markPosts(r *http.Request, posts []store.Post) {
+	viewer := viewerID(r)
+	if viewer == "" || len(posts) == 0 {
+		return
+	}
+	since := visitSince(r)
+	ids := make([]string, len(posts))
+	for i := range posts {
+		ids[i] = posts[i].ID
+	}
+	counts, err := s.store.CountNewComments(ids, viewer, since)
+	if err != nil {
+		log.Printf("count new comments: %v", err)
+	}
+	for i := range posts {
+		if posts[i].AuthorID != viewer {
+			posts[i].New = since == "" || posts[i].CreatedAt > since
+		}
+		posts[i].NewComments = counts[posts[i].ID]
+	}
 }
 
 func (s *Server) renderError(w http.ResponseWriter, r *http.Request, status int, msg string) {
@@ -323,7 +362,19 @@ func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) (*store.Us
 	if !ok {
 		return nil, false
 	}
-	if u.Role != "admin" {
+	if !u.IsAdmin() {
+		s.renderError(w, r, http.StatusForbidden, "You do not have permission to view that page.")
+		return nil, false
+	}
+	return u, true
+}
+
+func (s *Server) requireModerator(w http.ResponseWriter, r *http.Request) (*store.User, bool) {
+	u, ok := s.requireUser(w, r)
+	if !ok {
+		return nil, false
+	}
+	if !u.IsStaff() {
 		s.renderError(w, r, http.StatusForbidden, "You do not have permission to view that page.")
 		return nil, false
 	}
@@ -340,6 +391,7 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request, u *store.U
 	}
 	http.SetCookie(w, auth.SessionCookieValue(sess.ID, s.cfg.SessionTTL, s.cfg.SecureCookies))
 	http.SetCookie(w, auth.CSRFCookieValue(sess.CSRFToken, s.cfg.SecureCookies))
+	clearVisitSince(w, s.cfg.SecureCookies)
 	return sess, nil
 }
 

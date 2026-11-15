@@ -1,0 +1,9 @@
+{{template "header" .}}
+<h2>Bookmarks</h2>
+{{if .Posts}}
+{{template "post_table" .}}
+{{template "pager" .}}
+{{else}}
+<p class="empty">You have not bookmarked any posts yet.</p>
+{{end}}
+{{template "footer" .}}

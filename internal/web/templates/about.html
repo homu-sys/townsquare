@@ -7,7 +7,7 @@ own hardware.</p>
 <p>Avatars are resized and checked locally for adult or graphic content; nothing is sent to an
 external service. The NSFW channel stays hidden until you confirm the 18+ warning.</p>
 
-<p>The public API starts at <a href="/api/v1/site"><code>/api/v1/site</code></a>. Writes use a
-personal token from <a href="/settings">settings</a>. Version 1 hosts one town; Version 2 will
-connect towns with ActivityPub.</p>
+<p>The <a href="/api">API documentation</a> lists every endpoint. Writes use a personal token from
+<a href="/settings">settings</a>. Towns can also pull each other's recent posts through
+<a href="/federation/latest.json"><code>/federation/latest.json</code></a>.</p>
 {{template "footer" .}}

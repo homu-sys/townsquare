@@ -70,6 +70,7 @@ func New(cfg config.Config, st *store.Store) (*Server, error) {
 func (s *Server) Handler() http.Handler {
 	var h http.Handler = s.mux
 	h = s.attackMode(h)
+	h = s.visitMarkers(h)
 	h = s.loadSession(h)
 	h = s.securityHeaders(h)
 	h = s.limitRequestBody(h)
@@ -103,6 +104,7 @@ func (s *Server) routes(staticFS fs.FS) {
 	mux.HandleFunc("GET /random", s.randomPost)
 	mux.HandleFunc("GET /feed.xml", s.siteFeed)
 	mux.HandleFunc("GET /rss.xml", s.siteFeed)
+	mux.HandleFunc("GET /federation/latest.json", s.federationLatest)
 	mux.HandleFunc("GET /feed", func(w http.ResponseWriter, r *http.Request) {
 		redirect(w, r, "/feed.xml")
 	})
@@ -129,10 +131,17 @@ func (s *Server) routes(staticFS fs.FS) {
 	mux.HandleFunc("GET /users", s.usersList)
 	mux.HandleFunc("GET /users/{username}", s.userProfile)
 	mux.HandleFunc("GET /users/{username}/feed.xml", s.userFeed)
+	mux.HandleFunc("POST /users/{username}/mute", s.userMute)
+	mux.HandleFunc("POST /users/{username}/unmute", s.userUnmute)
+	mux.HandleFunc("POST /users/{username}/block", s.userBlock)
+	mux.HandleFunc("POST /users/{username}/unblock", s.userUnblock)
 
+	mux.HandleFunc("GET /bookmarks", s.bookmarksPage)
 	mux.HandleFunc("GET /new", s.postNewForm)
 	mux.HandleFunc("POST /new", s.postCreate)
 	mux.HandleFunc("GET /posts/{id}", s.postView)
+	mux.HandleFunc("POST /posts/{id}/bookmark", s.postBookmark)
+	mux.HandleFunc("POST /posts/{id}/unbookmark", s.postUnbookmark)
 	mux.HandleFunc("GET /posts/{id}/edit", s.postEditForm)
 	mux.HandleFunc("POST /posts/{id}/edit", s.postEdit)
 	mux.HandleFunc("POST /posts/{id}/delete", s.postDelete)
@@ -164,6 +173,7 @@ func (s *Server) routes(staticFS fs.FS) {
 	mux.HandleFunc("GET /admin/users", s.adminUsers)
 	mux.HandleFunc("POST /admin/users/{id}/disable", s.adminUserDisable)
 	mux.HandleFunc("POST /admin/users/{id}/enable", s.adminUserEnable)
+	mux.HandleFunc("POST /admin/users/{id}/moderate", s.adminUserMakeModerator)
 	mux.HandleFunc("POST /admin/users/{id}/promote", s.adminUserPromote)
 	mux.HandleFunc("POST /admin/users/{id}/demote", s.adminUserDemote)
 	mux.HandleFunc("POST /admin/users/{id}/reset", s.adminUserReset)
@@ -172,6 +182,8 @@ func (s *Server) routes(staticFS fs.FS) {
 	mux.HandleFunc("GET /admin/dms", s.adminBlockedDMs)
 	mux.HandleFunc("POST /admin/dms/{id}/delete", s.adminBlockedDMDelete)
 
+	mux.HandleFunc("GET /api", s.apiDocs)
+	mux.HandleFunc("GET /api/{$}", s.apiDocs)
 	mux.HandleFunc("GET /api/v1/site", s.apiSite)
 	mux.HandleFunc("GET /api/v1/users", s.apiUsers)
 	mux.HandleFunc("GET /api/v1/users/{username}", s.apiUser)

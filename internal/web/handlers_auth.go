@@ -85,7 +85,7 @@ func (s *Server) setupPost(w http.ResponseWriter, r *http.Request) {
 		DisplayName:  display,
 		Email:        email,
 		PasswordHash: hash,
-		Role:         "admin",
+		Role:         store.RoleOwner,
 		CreatedAt:    store.Now(),
 	}
 	if err := s.store.CreateFirstUser(u); err != nil {
@@ -192,6 +192,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 		_ = s.store.DeleteSession(sess.ID)
 	}
 	http.SetCookie(w, auth.ClearSessionCookie(s.cfg.SecureCookies))
+	clearVisitSince(w, s.cfg.SecureCookies)
 	s.setFlash(w, "You have been logged out.")
 	redirect(w, r, "/")
 }

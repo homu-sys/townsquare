@@ -1,7 +1,7 @@
 {{template "header" .}}
 <h2 class="post-title">{{.Post.Title}}</h2>
 <div class="byline">
-  by <a href="/users/{{.Post.AuthorUsername}}">{{.Post.AuthorDisplayName}}</a>{{if eq .Post.AuthorRole "admin"}} <span class="tag">admin</span>{{end}}
+  by <a href="/users/{{.Post.AuthorUsername}}">{{.Post.AuthorDisplayName}}</a>{{template "role_badge" .Post.AuthorRole}}
   on {{fdate .Post.CreatedAt}}{{if ne .Post.CreatedAt .Post.UpdatedAt}} &middot; updated {{fdate .Post.UpdatedAt}}{{end}}
   {{if eq .Post.Channel "nsfw"}} &middot; <span class="tag nsfw">18+</span>
   {{else if ne .Post.Channel "general"}} &middot; <a class="tag" href="/c/{{.Post.Channel}}">{{.Post.Channel}}</a>{{end}}
@@ -9,9 +9,26 @@
 <div class="post-body">{{safeHTML .Post.BodyHTML}}</div>
 {{if .PostTags}}<p class="tags">Tags: {{range .PostTags}}<a class="hashtag" href="/tags/{{.}}">#{{.}}</a> {{end}}</p>{{end}}
 {{template "reaction_bar" .PostReactions}}
-{{if .CanEdit}}
+{{if .LoggedIn}}
 <div class="toolbar">
-  <a class="button" href="/posts/{{.Post.ID}}/edit">Edit</a>
+  {{if .Bookmarked}}
+  <form method="post" action="/posts/{{.Post.ID}}/unbookmark" class="inline">
+  {{template "csrf" .}}
+  <input type="hidden" name="next" value="/posts/{{.Post.ID}}">
+  <button type="submit" class="link">Remove bookmark</button>
+  </form>
+  {{else}}
+  <form method="post" action="/posts/{{.Post.ID}}/bookmark" class="inline">
+  {{template "csrf" .}}
+  <input type="hidden" name="next" value="/posts/{{.Post.ID}}">
+  <button type="submit" class="link">Bookmark</button>
+  </form>
+  {{end}}
+</div>
+{{end}}
+{{if or .CanEdit .CanDelete}}
+<div class="toolbar">
+  {{if .CanEdit}}<a class="button" href="/posts/{{.Post.ID}}/edit">Edit</a>{{end}}
   {{if .CanDelete}}
   <form method="post" action="/posts/{{.Post.ID}}/delete" class="inline">
   {{template "csrf" .}}
@@ -28,7 +45,7 @@
 {{range .Comments}}
   <div class="comment{{if .Indent}} comment-reply{{end}}" id="comment-{{.ID}}"{{if .Indent}} style="margin-left: {{.Indent}}em"{{end}}>
     <div class="comment-head">
-      <a href="/users/{{.AuthorUsername}}">{{.AuthorDisplayName}}</a>{{if eq .AuthorRole "admin"}} <span class="tag">admin</span>{{end}}
+      <a href="/users/{{.AuthorUsername}}">{{.AuthorDisplayName}}</a>{{template "role_badge" .AuthorRole}}{{if .New}} <span class="tag new">new</span>{{end}}
       <span class="date">{{fdate .CreatedAt}}</span>
       {{if .ReplyToUsername}}<span class="small">in reply to <a href="#comment-{{.ParentID}}">@{{.ReplyToUsername}}</a></span>{{end}}
     </div>

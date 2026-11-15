@@ -8,8 +8,10 @@
   <div class="footer-links">
     <a href="/about">about</a> |
     <a href="/users">people</a> |
+    {{if .LoggedIn}}<a href="/bookmarks">bookmarks</a> |
+    {{end}}
     <a href="/channels">channels</a> |
-    <a href="/api/v1/site">public api</a> |
+    <a href="/api">api docs</a> |
     <a href="/feed.xml">rss</a> |
     <a href="/admin">admin</a>
   </div>
@@ -38,8 +40,8 @@
   <tr><th>Subject</th><th>Author</th><th class="num">Replies</th><th>Posted</th></tr>
   {{range .Posts}}
   <tr>
-    <td><a href="/posts/{{.ID}}">{{.Title}}</a>{{if ne .Channel "general"}} <span class="tag">{{.Channel}}</span>{{end}}</td>
-    <td><a href="/users/{{.AuthorUsername}}">{{.AuthorDisplayName}}</a>{{if eq .AuthorRole "admin"}} <span class="tag">admin</span>{{end}}</td>
+    <td><a href="/posts/{{.ID}}">{{.Title}}</a>{{if .New}} <span class="tag new">new</span>{{else if .NewComments}} <span class="tag new">{{.NewComments}} new</span>{{end}}{{if ne .Channel "general"}} <span class="tag">{{.Channel}}</span>{{end}}</td>
+    <td><a href="/users/{{.AuthorUsername}}">{{.AuthorDisplayName}}</a>{{template "role_badge" .AuthorRole}}</td>
     <td class="num">{{.CommentCount}}</td>
     <td class="date">{{fdate .CreatedAt}}</td>
   </tr>

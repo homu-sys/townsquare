@@ -8,21 +8,23 @@ import (
 )
 
 type Config struct {
-	Addr               string
-	DBPath             string
-	BaseURL            string
-	SiteName           string
-	Tagline            string
-	SecureCookies      bool
-	AllowSetup         bool
-	OpenRegistration   bool
-	TrustProxy         bool
-	RemoteImages       bool
-	DMBlocklist        []string
-	SessionTTL         time.Duration
-	ImageModeration    bool
-	ImageNSFWThreshold float64
-	ImageGoreThreshold float64
+	Addr                string
+	DBPath              string
+	BaseURL             string
+	SiteName            string
+	Tagline             string
+	SecureCookies       bool
+	AllowSetup          bool
+	OpenRegistration    bool
+	TrustProxy          bool
+	RemoteImages        bool
+	DMBlocklist         []string
+	SessionTTL          time.Duration
+	ImageModeration     bool
+	ImageNSFWThreshold  float64
+	ImageGoreThreshold  float64
+	FederationInstances []string
+	FederationInterval  time.Duration
 }
 
 func Load() Config {
@@ -52,22 +54,55 @@ func Load() Config {
 		imageModeration = true
 	}
 	return Config{
-		Addr:               env("TS_ADDR", ":8090"),
-		DBPath:             env("TS_DB", "townsquare.db"),
-		BaseURL:            base,
-		SiteName:           env("TS_SITE_NAME", "Townsquare"),
-		Tagline:            env("TS_TAGLINE", "a small, self-hosted place to publish things"),
-		SecureCookies:      secure,
-		AllowSetup:         allowSetup,
-		OpenRegistration:   openRegistration,
-		TrustProxy:         trustProxy,
-		RemoteImages:       remoteImages,
-		DMBlocklist:        listEnv("TS_DM_BLOCKLIST"),
-		SessionTTL:         30 * 24 * time.Hour,
-		ImageModeration:    imageModeration,
-		ImageNSFWThreshold: floatEnv("TS_IMAGE_NSFW_THRESHOLD", 0.85),
-		ImageGoreThreshold: floatEnv("TS_IMAGE_GORE_THRESHOLD", 0.60),
+		Addr:                env("TS_ADDR", ":8090"),
+		DBPath:              env("TS_DB", "townsquare.db"),
+		BaseURL:             base,
+		SiteName:            env("TS_SITE_NAME", "Townsquare"),
+		Tagline:             env("TS_TAGLINE", "a small, self-hosted place to publish things"),
+		SecureCookies:       secure,
+		AllowSetup:          allowSetup,
+		OpenRegistration:    openRegistration,
+		TrustProxy:          trustProxy,
+		RemoteImages:        remoteImages,
+		DMBlocklist:         listEnv("TS_DM_BLOCKLIST"),
+		SessionTTL:          30 * 24 * time.Hour,
+		ImageModeration:     imageModeration,
+		ImageNSFWThreshold:  floatEnv("TS_IMAGE_NSFW_THRESHOLD", 0.85),
+		ImageGoreThreshold:  floatEnv("TS_IMAGE_GORE_THRESHOLD", 0.60),
+		FederationInstances: listURLEnv("TS_FEDERATION_INSTANCES"),
+		FederationInterval:  durationEnv("TS_FEDERATION_INTERVAL", 10*time.Minute),
 	}
+}
+
+func durationEnv(key string, fallback time.Duration) time.Duration {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return fallback
+	}
+	if d < time.Minute {
+		return time.Minute
+	}
+	return d
+}
+
+func listURLEnv(key string) []string {
+	v := env(key, "")
+	if v == "" {
+		return nil
+	}
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimRight(strings.TrimSpace(p), "/")
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func floatEnv(key string, fallback float64) float64 {

@@ -39,7 +39,15 @@ func validateComment(body string) string {
 }
 
 func canManagePost(u *store.User, p *store.Post) bool {
-	return u != nil && (u.Role == "admin" || u.ID == p.AuthorID)
+	return u != nil && (u.IsAdmin() || u.ID == p.AuthorID)
+}
+
+func canDeletePost(u *store.User, p *store.Post) bool {
+	return u != nil && (u.IsStaff() || u.ID == p.AuthorID)
+}
+
+func canDeleteComment(u *store.User, p *store.Post, c *store.Comment) bool {
+	return u != nil && (u.IsStaff() || u.ID == c.AuthorID || u.ID == p.AuthorID)
 }
 
 func (s *Server) postNewForm(w http.ResponseWriter, r *http.Request) {
@@ -110,13 +118,15 @@ func (s *Server) postCreate(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) commentViews(r *http.Request, p *store.Post, comments []store.Comment) []CommentView {
 	u := userFrom(r)
+	since := visitSince(r)
 	index := make(map[string]int, len(comments))
 	views := make([]CommentView, len(comments))
 	for i, c := range comments {
-		canDelete := u != nil && (u.Role == "admin" || u.ID == c.AuthorID || u.ID == p.AuthorID)
+		canDelete := canDeleteComment(u, p, &c)
 		views[i] = CommentView{
 			Comment:   c,
 			CanDelete: canDelete,
+			New:       u != nil && c.AuthorID != u.ID && (since == "" || c.CreatedAt > since),
 			Reactions: s.reactionView(r, "comment", c.ID, "/posts/"+p.ID+"#comment-"+c.ID),
 		}
 		index[c.ID] = i
@@ -180,7 +190,8 @@ func (s *Server) postView(w http.ResponseWriter, r *http.Request) {
 		s.renderNSFWWarning(w, r, "/posts/"+p.ID)
 		return
 	}
-	comments, err := s.store.ListComments(id)
+	uid := viewerID(r)
+	comments, err := s.store.ListCommentsFor(id, uid)
 	if err != nil {
 		s.renderError(w, r, http.StatusInternalServerError, "Could not read the comments.")
 		return
@@ -204,8 +215,11 @@ func (s *Server) postView(w http.ResponseWriter, r *http.Request) {
 	}
 	page.PostReactions = s.reactionView(r, "post", p.ID, "/posts/"+p.ID)
 	page.PostTags, _ = s.store.ListPostTags(p.ID)
+	if u != nil {
+		page.Bookmarked, _ = s.store.IsBookmarked(u.ID, p.ID)
+	}
 	page.CanEdit = canManagePost(u, p)
-	page.CanDelete = page.CanEdit
+	page.CanDelete = canDeletePost(u, p)
 	page.OGTitle = p.Title
 	page.OGType = "article"
 	if p.Channel == "nsfw" {
@@ -320,7 +334,7 @@ func (s *Server) postDelete(w http.ResponseWriter, r *http.Request) {
 		s.renderError(w, r, http.StatusNotFound, "That post does not exist.")
 		return
 	}
-	if !canManagePost(u, p) {
+	if !canDeletePost(u, p) {
 		s.renderError(w, r, http.StatusForbidden, "You cannot delete that post.")
 		return
 	}
@@ -398,7 +412,7 @@ func (s *Server) commentDelete(w http.ResponseWriter, r *http.Request) {
 		s.renderError(w, r, http.StatusNotFound, "That post does not exist.")
 		return
 	}
-	if !(u.Role == "admin" || u.ID == c.AuthorID || u.ID == p.AuthorID) {
+	if !canDeleteComment(u, p, c) {
 		s.renderError(w, r, http.StatusForbidden, "You cannot delete that comment.")
 		return
 	}

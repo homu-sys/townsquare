@@ -11,7 +11,8 @@ import (
 )
 
 func (s *Server) adminDashboard(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requireAdmin(w, r); !ok {
+	u, ok := s.requireModerator(w, r)
+	if !ok {
 		return
 	}
 	users, posts, comments, err := s.store.Stats()
@@ -21,18 +22,27 @@ func (s *Server) adminDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	admins, _ := s.store.CountActiveAdmins()
 	hits, _ := s.store.GetHits()
-	recentUsers, _ := s.store.ListUsers(6, 0)
+	visitors, _ := s.store.CountVisitors()
 	recentPosts, _ := s.store.ListAllPosts(6, 0)
-	invites, _ := s.store.ListInvites()
+	var recentUsers []store.User
+	var invites []store.Invite
+	if u.IsAdmin() {
+		recentUsers, _ = s.store.ListUsers(6, 0)
+		invites, _ = s.store.ListInvites()
+	}
 
 	page := s.newPage(r)
 	page.Heading = "Admin"
+	if !u.IsAdmin() {
+		page.Heading = "Moderation"
+	}
 	page.Stats = &StatsView{
 		Users:        users,
 		Posts:        posts,
 		Comments:     comments,
 		ActiveAdmins: admins,
 		Hits:         hits,
+		Visitors:     visitors,
 	}
 	page.Users = recentUsers
 	page.Posts = recentPosts
@@ -60,7 +70,7 @@ func (s *Server) adminLockdownEnable(w http.ResponseWriter, r *http.Request) {
 		}
 		log.Printf("attack mode enabled manually by %s", u.Username)
 	}
-	s.setFlash(w, "Attack mode enabled. Only recorded visitors and admins may enter.")
+	s.setFlash(w, "Attack mode enabled. Only recorded visitors and signed-in staff may enter.")
 	redirect(w, r, "/admin")
 }
 
@@ -282,7 +292,7 @@ func (s *Server) adminUserDisable(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if target.Role == "admin" && !target.Disabled {
+	if target.IsAdmin() && !target.Disabled {
 		n, _ := s.store.CountActiveAdminsExcluding(target.ID)
 		if n == 0 {
 			s.setFlash(w, "There must be at least one active admin.")
@@ -318,6 +328,26 @@ func (s *Server) adminUserEnable(w http.ResponseWriter, r *http.Request) {
 	redirect(w, r, "/admin/users")
 }
 
+func (s *Server) adminUserMakeModerator(w http.ResponseWriter, r *http.Request) {
+	admin, ok := s.requireAdmin(w, r)
+	if !ok {
+		return
+	}
+	if !s.checkCSRF(w, r) {
+		return
+	}
+	target, ok := s.adminTarget(w, r, admin)
+	if !ok {
+		return
+	}
+	if err := s.store.SetUserRole(target.ID, store.RoleModerator); err != nil {
+		s.renderError(w, r, http.StatusInternalServerError, "Could not change that role.")
+		return
+	}
+	s.setFlash(w, target.DisplayName+" is now a moderator.")
+	redirect(w, r, "/admin/users")
+}
+
 func (s *Server) adminUserPromote(w http.ResponseWriter, r *http.Request) {
 	admin, ok := s.requireAdmin(w, r)
 	if !ok {
@@ -330,7 +360,7 @@ func (s *Server) adminUserPromote(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := s.store.SetUserRole(target.ID, "admin"); err != nil {
+	if err := s.store.SetUserRole(target.ID, store.RoleAdmin); err != nil {
 		s.renderError(w, r, http.StatusInternalServerError, "Could not change that role.")
 		return
 	}
@@ -350,7 +380,7 @@ func (s *Server) adminUserDemote(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if target.Role == "admin" {
+	if target.IsAdmin() {
 		n, _ := s.store.CountActiveAdminsExcluding(target.ID)
 		if n == 0 {
 			s.setFlash(w, "There must be at least one active admin.")
@@ -358,7 +388,7 @@ func (s *Server) adminUserDemote(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := s.store.SetUserRole(target.ID, "user"); err != nil {
+	if err := s.store.SetUserRole(target.ID, store.RoleUser); err != nil {
 		s.renderError(w, r, http.StatusInternalServerError, "Could not change that role.")
 		return
 	}
@@ -383,11 +413,16 @@ func (s *Server) adminTarget(w http.ResponseWriter, r *http.Request, admin *stor
 		redirect(w, r, "/admin/users")
 		return nil, false
 	}
+	if target.Role == store.RoleOwner {
+		s.setFlash(w, "The instance owner cannot be changed here.")
+		redirect(w, r, "/admin/users")
+		return nil, false
+	}
 	return target, true
 }
 
 func (s *Server) adminPosts(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requireAdmin(w, r); !ok {
+	if _, ok := s.requireModerator(w, r); !ok {
 		return
 	}
 	const limit = 50
@@ -413,7 +448,7 @@ func (s *Server) adminPosts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) adminPostDelete(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requireAdmin(w, r); !ok {
+	if _, ok := s.requireModerator(w, r); !ok {
 		return
 	}
 	if !s.checkCSRF(w, r) {

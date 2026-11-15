@@ -138,6 +138,25 @@ tr:nth-child(even) td { background: #f5f0e1; }
   text-transform: uppercase;
 }
 .tag.nsfw { background: var(--red); }
+.tag.new { background: #b36b00; }
+.role-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 4px;
+  padding: 1px 4px;
+  color: #fff;
+  background: #6b7a3a;
+  font-family: Verdana, Arial, sans-serif;
+  font-size: 10px;
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+.role-badge svg { flex: none; fill: currentColor; }
+.role-badge.owner { background: #7a5b00; }
+.role-badge.admin { background: #7a2020; }
+.role-badge.moderator { background: #3f5f2a; }
 .channel-list { line-height: 1.9; padding-left: 20px; }
 
 .flash {
@@ -252,6 +271,7 @@ textarea { width: 100%; resize: vertical; }
 .profile { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 24px; }
 .profile-meta { min-width: 180px; }
 .profile-meta p { margin: 4px 0; }
+.relationship-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .profile-bio { flex: 1; min-width: 220px; line-height: 1.55; }
 
 .dm-thread { margin: 14px 0; }

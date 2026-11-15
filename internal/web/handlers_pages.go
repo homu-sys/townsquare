@@ -30,18 +30,22 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 	news, _ := s.store.ListNews()
 	const limit = 20
 	pageNum := pageParam(r)
-	posts, err := s.store.ListPosts(limit+1, (pageNum-1)*limit)
+	posts, err := s.store.ListPostsFor(viewerID(r), limit+1, (pageNum-1)*limit)
 	if err != nil {
 		s.renderError(w, r, http.StatusInternalServerError, "Could not read posts.")
 		return
 	}
 	posts, hasNext := trimPage(posts, limit)
+	s.markPosts(r, posts)
 
 	page := s.newPage(r)
 	page.Posts = posts
 	page.News = news
 	page.Hits = hits
 	page.PageNum = pageNum
+	if pageNum == 1 {
+		page.RemotePosts, _ = s.store.ListRemotePosts(10)
+	}
 	if pageNum > 1 {
 		page.Prev = pageURL("/", pageNum-1)
 	}
@@ -92,25 +96,38 @@ func (s *Server) userProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	viewer := userFrom(r)
-	if profile.Disabled && (viewer == nil || viewer.Role != "admin") {
+	if profile.Disabled && (viewer == nil || !viewer.IsStaff()) {
 		s.renderError(w, r, http.StatusNotFound, "No such person lives here.")
 		return
 	}
 
+	muted, blocked := false, false
+	if viewer != nil && viewer.ID != profile.ID {
+		muted, _ = s.store.IsMuted(viewer.ID, profile.ID)
+		blocked, _ = s.store.IsBlocked(viewer.ID, profile.ID)
+	}
+
 	const limit = 20
 	pageNum := pageParam(r)
-	posts, err := s.store.ListUserPosts(profile.ID, limit+1, (pageNum-1)*limit)
-	if err != nil {
-		s.renderError(w, r, http.StatusInternalServerError, "Could not read posts.")
-		return
+	var posts []store.Post
+	var hasNext bool
+	if !blocked {
+		posts, err = s.store.ListUserPosts(profile.ID, limit+1, (pageNum-1)*limit)
+		if err != nil {
+			s.renderError(w, r, http.StatusInternalServerError, "Could not read posts.")
+			return
+		}
+		posts, hasNext = trimPage(posts, limit)
+		s.markPosts(r, posts)
 	}
-	posts, hasNext := trimPage(posts, limit)
 
 	base := "/users/" + url.PathEscape(profile.Username)
 	page := s.newPage(r)
 	page.Heading = profile.DisplayName
 	page.Profile = profile
 	page.Posts = posts
+	page.Muted = muted
+	page.Blocked = blocked
 	page.PageNum = pageNum
 	page.OGTitle = profile.DisplayName
 	page.OGType = "profile"

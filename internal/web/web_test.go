@@ -2,6 +2,7 @@ package web
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"image"
@@ -16,6 +17,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -205,8 +207,8 @@ func TestSetupCreatePostCommentAndAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get admin: %v", err)
 	}
-	if u.Role != "admin" {
-		t.Fatalf("role = %q, want admin", u.Role)
+	if u.Role != store.RoleOwner {
+		t.Fatalf("role = %q, want owner", u.Role)
 	}
 
 	resp = httpGet(t, c, ts.URL+"/")
@@ -1269,21 +1271,34 @@ func TestVisitorCounterCountsUniqueIPs(t *testing.T) {
 		return bodyOf(t, resp)
 	}
 
-	for range 2 {
-		if body := getAs("198.51.100.1"); !strings.Contains(body, `You are visitor <span class="digits">1</span>`) {
-			t.Fatalf("page refresh from same IP changed visitor number: %s", body)
+	for i := 1; i <= 2; i++ {
+		body := getAs("198.51.100.1")
+		if !strings.Contains(body, `You are visitor <span class="digits">`+strconv.Itoa(i)+`</span>`) {
+			t.Fatalf("page view %d from same IP not counted: %s", i, body)
 		}
 	}
 	hits, err := st.GetHits()
 	if err != nil {
 		t.Fatalf("get hits: %v", err)
 	}
-	if hits != 1 {
-		t.Fatalf("hits after same-IP refresh = %d, want 1", hits)
+	if hits != 2 {
+		t.Fatalf("hits after same-IP refresh = %d, want 2", hits)
+	}
+	visitors, err := st.CountVisitors()
+	if err != nil {
+		t.Fatalf("count visitors: %v", err)
+	}
+	if visitors != 1 {
+		t.Fatalf("unique visitors after same-IP refresh = %d, want 1", visitors)
 	}
 
-	if body := getAs("203.0.113.9"); !strings.Contains(body, `You are visitor <span class="digits">2</span>`) {
-		t.Fatalf("second IP not counted: %s", body)
+	body := getAs("203.0.113.9")
+	if !strings.Contains(body, `You are visitor <span class="digits">3</span>`) {
+		t.Fatalf("second IP not counted as a page view: %s", body)
+	}
+	visitors, err = st.CountVisitors()
+	if err != nil || visitors != 2 {
+		t.Fatalf("unique visitors = %d, err = %v, want 2", visitors, err)
 	}
 }
 
@@ -1658,6 +1673,103 @@ func TestChannelsAndNSFWHiding(t *testing.T) {
 	resp.Body.Close()
 }
 
+func TestModeratorRoleAndOwnerProtection(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	hash, err := auth.HashPassword("correct horse battery")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	owner := &store.User{Username: "owner", DisplayName: "Owner", PasswordHash: hash, Role: store.RoleOwner}
+	admin := &store.User{Username: "admin", DisplayName: "Admin", PasswordHash: hash, Role: store.RoleAdmin}
+	mod := &store.User{Username: "mod", DisplayName: "Mod", PasswordHash: hash, Role: store.RoleModerator}
+	member := &store.User{Username: "member", DisplayName: "Member", PasswordHash: hash, Role: store.RoleUser}
+	for _, u := range []*store.User{owner, admin, mod, member} {
+		if err := st.CreateUser(u); err != nil {
+			t.Fatalf("create %s: %v", u.Username, err)
+		}
+	}
+	posts := make([]*store.Post, 0, 4)
+	for _, u := range []*store.User{owner, admin, mod, member} {
+		p := &store.Post{AuthorID: u.ID, Title: u.DisplayName + " post", BodyMD: "hello", BodyHTML: "<p>hello</p>"}
+		if err := st.CreatePost(p); err != nil {
+			t.Fatalf("create %s post: %v", u.Username, err)
+		}
+		posts = append(posts, p)
+	}
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	ownerClient := loginClient(t, ts.URL, "owner", "correct horse battery")
+	adminClient := loginClient(t, ts.URL, "admin", "correct horse battery")
+	modClient := loginClient(t, ts.URL, "mod", "correct horse battery")
+	memberClient := loginClient(t, ts.URL, "member", "correct horse battery")
+
+	resp := httpGet(t, memberClient, ts.URL+"/")
+	wantStatus(t, resp, http.StatusOK)
+	body := bodyOf(t, resp)
+	for _, role := range []string{"owner", "admin", "moderator"} {
+		if !strings.Contains(body, `class="role-badge `+role+`"`) {
+			t.Fatalf("home missing %s role badge: %s", role, body)
+		}
+	}
+
+	resp = httpGet(t, modClient, ts.URL+"/admin")
+	wantStatus(t, resp, http.StatusOK)
+	body = bodyOf(t, resp)
+	if !strings.Contains(body, "Moderation") || !strings.Contains(body, "Recent posts") {
+		t.Fatalf("moderator dashboard missing content: %s", body)
+	}
+	if strings.Contains(body, `href="/admin/users"`) || strings.Contains(body, "Attack mode") {
+		t.Fatalf("moderator dashboard shows admin-only controls: %s", body)
+	}
+
+	resp = httpGet(t, modClient, ts.URL+"/admin/users")
+	wantStatus(t, resp, http.StatusForbidden)
+	resp.Body.Close()
+	resp = httpPostForm(t, modClient, ts.URL, ts.URL+"/admin/lockdown", url.Values{})
+	wantStatus(t, resp, http.StatusForbidden)
+	resp.Body.Close()
+
+	resp = httpGet(t, modClient, ts.URL+"/posts/"+posts[0].ID)
+	wantStatus(t, resp, http.StatusOK)
+	body = bodyOf(t, resp)
+	if !strings.Contains(body, `action="/posts/`+posts[0].ID+`/delete"`) || strings.Contains(body, `action="/posts/`+posts[0].ID+`/edit"`) {
+		t.Fatalf("moderator post controls are wrong: %s", body)
+	}
+
+	resp = httpPostForm(t, modClient, ts.URL, ts.URL+"/admin/posts/"+posts[3].ID+"/delete", url.Values{})
+	wantStatus(t, resp, http.StatusSeeOther)
+	resp.Body.Close()
+	if _, err := st.GetPost(posts[3].ID); err == nil {
+		t.Fatalf("moderator did not delete member post")
+	}
+
+	resp = httpPostForm(t, adminClient, ts.URL, ts.URL+"/admin/users/"+member.ID+"/moderate", url.Values{})
+	wantStatus(t, resp, http.StatusSeeOther)
+	resp.Body.Close()
+	updated, err := st.GetUserByID(member.ID)
+	if err != nil {
+		t.Fatalf("get promoted member: %v", err)
+	}
+	if updated.Role != store.RoleModerator {
+		t.Fatalf("member role = %q, want moderator", updated.Role)
+	}
+
+	resp = httpPostForm(t, adminClient, ts.URL, ts.URL+"/admin/users/"+owner.ID+"/demote", url.Values{})
+	wantStatus(t, resp, http.StatusSeeOther)
+	resp.Body.Close()
+	updated, err = st.GetUserByID(owner.ID)
+	if err != nil {
+		t.Fatalf("get owner: %v", err)
+	}
+	if updated.Role != store.RoleOwner {
+		t.Fatalf("owner role changed to %q", updated.Role)
+	}
+	resp = httpGet(t, ownerClient, ts.URL+"/admin/users")
+	wantStatus(t, resp, http.StatusOK)
+	resp.Body.Close()
+}
+
 func TestAdminNewsTicker(t *testing.T) {
 	srv, st, _ := newTestServer(t)
 	ts := httptest.NewServer(srv.Handler())
@@ -1904,5 +2016,473 @@ func TestAttackModeAutomatic(t *testing.T) {
 
 	if err := srv.disableLockdown(); err != nil {
 		t.Fatalf("disable lockdown: %v", err)
+	}
+}
+
+func TestFederationLatestFeed(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	u := &store.User{
+		ID:           store.NewID(),
+		Username:     "writer",
+		DisplayName:  "A Writer",
+		PasswordHash: "not-used",
+		Role:         "user",
+		CreatedAt:    store.Now(),
+	}
+	if err := st.CreateUser(u); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	p := &store.Post{AuthorID: u.ID, Title: "Hello from here", BodyMD: "A body.", BodyHTML: "<p>A body.</p>"}
+	if err := st.CreatePost(p); err != nil {
+		t.Fatalf("create post: %v", err)
+	}
+	nsfw := &store.Post{AuthorID: u.ID, Title: "Hidden", BodyMD: "no", BodyHTML: "<p>no</p>", Channel: "nsfw"}
+	if err := st.CreatePost(nsfw); err != nil {
+		t.Fatalf("create nsfw post: %v", err)
+	}
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	resp := httpGet(t, http.DefaultClient, ts.URL+"/federation/latest.json")
+	wantStatus(t, resp, http.StatusOK)
+	defer resp.Body.Close()
+
+	var feed federationFeed
+	if err := json.NewDecoder(resp.Body).Decode(&feed); err != nil {
+		t.Fatalf("decode feed: %v", err)
+	}
+	if feed.Site.Name != "Test Town" || feed.Site.URL != "http://example.test" {
+		t.Fatalf("site = %+v", feed.Site)
+	}
+	if len(feed.Posts) != 1 {
+		t.Fatalf("posts = %d, want 1 (nsfw must be excluded)", len(feed.Posts))
+	}
+	got := feed.Posts[0]
+	if got.ID != p.ID || got.Title != p.Title || got.Body != p.BodyMD {
+		t.Fatalf("post = %+v", got)
+	}
+	if got.URL != "http://example.test/posts/"+p.ID || got.Author.URL != "http://example.test/users/writer" {
+		t.Fatalf("post links = %+v", got)
+	}
+	if got.Author.Username != "writer" || got.Author.DisplayName != "A Writer" {
+		t.Fatalf("author = %+v", got.Author)
+	}
+}
+
+func TestFederationSync(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	if err := st.CreateUser(&store.User{
+		Username:     "admin",
+		DisplayName:  "Admin",
+		PasswordHash: "not-used",
+		Role:         "admin",
+	}); err != nil {
+		t.Fatalf("create admin: %v", err)
+	}
+	title := "News from elsewhere"
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != federationFeedPath {
+			http.NotFound(w, r)
+			return
+		}
+		feed := map[string]any{
+			"site":         map[string]any{"name": "Remote Town", "url": "https://remote.test"},
+			"generated_at": store.Now(),
+			"posts": []map[string]any{
+				{
+					"id": "abc123", "url": "https://remote.test/posts/abc123", "title": title,
+					"body": "Remote body", "channel": "general",
+					"author": map[string]any{
+						"username": "farmer", "display_name": "A Farmer",
+						"url": "https://remote.test/users/farmer",
+					},
+					"created_at": store.Now(), "updated_at": store.Now(), "comment_count": 4,
+				},
+				{
+					"id": "bad", "url": "javascript:alert(1)", "title": "Bad link",
+					"body": "", "created_at": store.Now(),
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(feed)
+	}))
+	defer remote.Close()
+
+	srv.cfg.FederationInstances = []string{remote.URL}
+	srv.SyncFederation(context.Background())
+
+	posts, err := st.ListRemotePosts(10)
+	if err != nil {
+		t.Fatalf("list remote posts: %v", err)
+	}
+	if len(posts) != 1 {
+		t.Fatalf("remote posts = %d, want 1", len(posts))
+	}
+	got := posts[0]
+	if got.Title != title || got.SiteName != "Remote Town" || got.Instance != remote.URL {
+		t.Fatalf("remote post = %+v", got)
+	}
+	if got.CommentCount != 4 || got.AuthorDisplayName != "A Farmer" {
+		t.Fatalf("remote post details = %+v", got)
+	}
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	resp := httpGet(t, http.DefaultClient, ts.URL+"/")
+	wantStatus(t, resp, http.StatusOK)
+	body := bodyOf(t, resp)
+	for _, want := range []string{"From other towns", title, "https://remote.test/posts/abc123", remote.URL} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("home page missing %q", want)
+		}
+	}
+}
+
+func TestFederationFeedURL(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"https://town.test", "https://town.test/federation/latest.json"},
+		{"https://town.test/", "https://town.test/federation/latest.json"},
+		{"https://town.test/town", "https://town.test/town/federation/latest.json"},
+		{"https://town.test/custom.json", "https://town.test/custom.json"},
+	}
+	for _, tc := range cases {
+		u, err := federationFeedURL(tc.in)
+		if err != nil {
+			t.Fatalf("parse %q: %v", tc.in, err)
+		}
+		if u.String() != tc.want {
+			t.Fatalf("parse %q = %q, want %q", tc.in, u.String(), tc.want)
+		}
+	}
+	for _, bad := range []string{"ftp://town.test", "not a url", "https://"} {
+		if _, err := federationFeedURL(bad); err == nil {
+			t.Fatalf("parse %q unexpectedly succeeded", bad)
+		}
+	}
+}
+
+func TestAPIDocs(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	for _, path := range []string{"/api", "/api/"} {
+		resp := httpGet(t, http.DefaultClient, ts.URL+path)
+		wantStatus(t, resp, http.StatusOK)
+		body := bodyOf(t, resp)
+		for _, want := range []string{
+			"<h2>API</h2>",
+			"/api/v1/posts",
+			"/api/v1/posts/{id}/comments",
+			"Authorization: Bearer",
+			"/federation/latest.json",
+		} {
+			if !strings.Contains(body, want) {
+				t.Fatalf("%s missing %q", path, want)
+			}
+		}
+	}
+
+	resp := httpGet(t, http.DefaultClient, ts.URL+"/api/v1/nope")
+	wantStatus(t, resp, http.StatusNotFound)
+	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "application/json") {
+		t.Fatalf("unknown API endpoint content type = %q", ct)
+	}
+	if body := bodyOf(t, resp); !strings.Contains(body, "no such API endpoint") {
+		t.Fatalf("unknown API endpoint body = %q", body)
+	}
+}
+
+func TestMuteAndBlockUsers(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	hash, err := auth.HashPassword("correct horse battery")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	alice := &store.User{Username: "alice", DisplayName: "Alice", PasswordHash: hash, Role: "user"}
+	bob := &store.User{Username: "bob", DisplayName: "Bob", PasswordHash: hash, Role: "user"}
+	for _, u := range []*store.User{alice, bob} {
+		if err := st.CreateUser(u); err != nil {
+			t.Fatalf("create %s: %v", u.Username, err)
+		}
+	}
+	alicePost := &store.Post{AuthorID: alice.ID, Title: "Alice post", BodyMD: "hello", BodyHTML: "<p>hello</p>"}
+	bobPost := &store.Post{AuthorID: bob.ID, Title: "Bob post", BodyMD: "hi", BodyHTML: "<p>hi</p>"}
+	for _, p := range []*store.Post{alicePost, bobPost} {
+		if err := st.CreatePost(p); err != nil {
+			t.Fatalf("create post: %v", err)
+		}
+	}
+	bobComment := &store.Comment{PostID: alicePost.ID, AuthorID: bob.ID, BodyMD: "Bob comment", BodyHTML: "<p>Bob comment</p>"}
+	if err := st.CreateComment(bobComment); err != nil {
+		t.Fatalf("create comment: %v", err)
+	}
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	aliceClient := loginClient(t, ts.URL, "alice", "correct horse battery")
+	bobClient := loginClient(t, ts.URL, "bob", "correct horse battery")
+
+	home := func(c *http.Client) string {
+		t.Helper()
+		resp := httpGet(t, c, ts.URL+"/")
+		wantStatus(t, resp, http.StatusOK)
+		return bodyOf(t, resp)
+	}
+	postPage := func(c *http.Client) string {
+		t.Helper()
+		resp := httpGet(t, c, ts.URL+"/posts/"+alicePost.ID)
+		wantStatus(t, resp, http.StatusOK)
+		return bodyOf(t, resp)
+	}
+
+	if body := home(aliceClient); !strings.Contains(body, "Alice post") || !strings.Contains(body, "Bob post") {
+		t.Fatalf("home missing posts before mute: %s", body)
+	}
+	if body := postPage(aliceClient); !strings.Contains(body, "Bob comment") {
+		t.Fatalf("post missing comment before mute: %s", body)
+	}
+
+	resp := httpPostForm(t, aliceClient, ts.URL, ts.URL+"/users/bob/mute", url.Values{})
+	wantStatus(t, resp, http.StatusSeeOther)
+	resp.Body.Close()
+	if body := home(aliceClient); !strings.Contains(body, "Alice post") || strings.Contains(body, "Bob post") {
+		t.Fatalf("mute did not hide Bob's post: %s", body)
+	}
+	if body := postPage(aliceClient); strings.Contains(body, "Bob comment") {
+		t.Fatalf("mute did not hide Bob's comment: %s", body)
+	}
+	resp = httpGet(t, aliceClient, ts.URL+"/settings")
+	wantStatus(t, resp, http.StatusOK)
+	if body := bodyOf(t, resp); !strings.Contains(body, "Muted people") || !strings.Contains(body, "@bob") {
+		t.Fatalf("settings missing muted user: %s", body)
+	}
+
+	resp = httpPostForm(t, aliceClient, ts.URL, ts.URL+"/users/bob/unmute", url.Values{"next": {"/settings"}})
+	wantStatus(t, resp, http.StatusSeeOther)
+	if loc := resp.Header.Get("Location"); loc != "/settings" {
+		t.Fatalf("unmute redirect = %q", loc)
+	}
+	resp.Body.Close()
+	if body := home(aliceClient); !strings.Contains(body, "Bob post") {
+		t.Fatalf("unmute did not restore Bob's post: %s", body)
+	}
+
+	resp = httpPostForm(t, aliceClient, ts.URL, ts.URL+"/users/bob/block", url.Values{})
+	wantStatus(t, resp, http.StatusSeeOther)
+	resp.Body.Close()
+	if body := home(aliceClient); strings.Contains(body, "Bob post") {
+		t.Fatalf("block did not hide Bob's post: %s", body)
+	}
+	resp = httpGet(t, aliceClient, ts.URL+"/users/bob")
+	wantStatus(t, resp, http.StatusOK)
+	body := bodyOf(t, resp)
+	if !strings.Contains(body, "You blocked this person") || strings.Contains(body, "Bob post") {
+		t.Fatalf("blocked profile = %s", body)
+	}
+
+	resp = httpGet(t, aliceClient, ts.URL+"/messages/bob")
+	wantStatus(t, resp, http.StatusForbidden)
+	resp.Body.Close()
+	resp = httpGet(t, bobClient, ts.URL+"/messages/alice")
+	wantStatus(t, resp, http.StatusForbidden)
+	resp.Body.Close()
+
+	resp = httpPostForm(t, aliceClient, ts.URL, ts.URL+"/users/bob/unblock", url.Values{})
+	wantStatus(t, resp, http.StatusSeeOther)
+	resp.Body.Close()
+	resp = httpGet(t, aliceClient, ts.URL+"/messages/bob")
+	wantStatus(t, resp, http.StatusOK)
+	resp.Body.Close()
+
+	resp = httpPostForm(t, aliceClient, ts.URL, ts.URL+"/users/alice/mute", url.Values{})
+	wantStatus(t, resp, http.StatusNotFound)
+	resp.Body.Close()
+}
+
+func postRow(body, title string) string {
+	i := strings.Index(body, ">"+title+"<")
+	if i < 0 {
+		return ""
+	}
+	start := strings.LastIndex(body[:i], "<tr>")
+	end := strings.Index(body[i:], "</tr>")
+	if start < 0 || end < 0 {
+		return ""
+	}
+	return body[start : i+end]
+}
+
+func commentBlock(body, text string) string {
+	i := strings.Index(body, text)
+	if i < 0 {
+		return ""
+	}
+	start := i
+	if idPos := strings.LastIndex(body[:i], `id="comment-`); idPos >= 0 {
+		if divPos := strings.LastIndex(body[:idPos], "<div"); divPos >= 0 {
+			start = divPos
+		}
+	}
+	end := len(body)
+	if next := strings.Index(body[i:], `id="comment-`); next >= 0 {
+		end = i + next
+		if divPos := strings.LastIndex(body[:end], "<div"); divPos > start {
+			end = divPos
+		}
+	}
+	return body[start:end]
+}
+
+func TestBookmarks(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	hash, err := auth.HashPassword("correct horse battery")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	alice := &store.User{Username: "alice", DisplayName: "Alice", PasswordHash: hash}
+	bob := &store.User{Username: "bob", DisplayName: "Bob", PasswordHash: hash}
+	for _, u := range []*store.User{alice, bob} {
+		if err := st.CreateUser(u); err != nil {
+			t.Fatalf("create %s: %v", u.Username, err)
+		}
+	}
+	post := &store.Post{AuthorID: bob.ID, Title: "Saved post", BodyMD: "body", BodyHTML: "<p>body</p>"}
+	if err := st.CreatePost(post); err != nil {
+		t.Fatalf("create post: %v", err)
+	}
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	aliceClient := loginClient(t, ts.URL, "alice", "correct horse battery")
+	bobClient := loginClient(t, ts.URL, "bob", "correct horse battery")
+
+	resp := httpGet(t, aliceClient, ts.URL+"/bookmarks")
+	wantStatus(t, resp, http.StatusOK)
+	if body := bodyOf(t, resp); !strings.Contains(body, "You have not bookmarked any posts yet.") {
+		t.Fatalf("empty bookmarks page = %s", body)
+	}
+
+	resp = httpGet(t, aliceClient, ts.URL+"/posts/"+post.ID)
+	wantStatus(t, resp, http.StatusOK)
+	if body := bodyOf(t, resp); !strings.Contains(body, ">Bookmark</button>") {
+		t.Fatalf("post page missing bookmark control: %s", body)
+	}
+
+	resp = httpPostForm(t, aliceClient, ts.URL, ts.URL+"/posts/"+post.ID+"/bookmark", url.Values{"next": {"/bookmarks"}})
+	wantStatus(t, resp, http.StatusSeeOther)
+	if loc := resp.Header.Get("Location"); loc != "/bookmarks" {
+		t.Fatalf("bookmark redirect = %q", loc)
+	}
+	resp.Body.Close()
+
+	resp = httpGet(t, aliceClient, ts.URL+"/posts/"+post.ID)
+	wantStatus(t, resp, http.StatusOK)
+	if body := bodyOf(t, resp); !strings.Contains(body, "Remove bookmark") {
+		t.Fatalf("post page missing remove-bookmark control: %s", body)
+	}
+	resp = httpGet(t, aliceClient, ts.URL+"/bookmarks")
+	wantStatus(t, resp, http.StatusOK)
+	if body := bodyOf(t, resp); !strings.Contains(body, "Saved post") {
+		t.Fatalf("bookmarks page missing saved post: %s", body)
+	}
+
+	resp = httpGet(t, bobClient, ts.URL+"/bookmarks")
+	wantStatus(t, resp, http.StatusOK)
+	if body := bodyOf(t, resp); strings.Contains(body, "Saved post") {
+		t.Fatalf("bookmarks leaked to another user: %s", body)
+	}
+
+	resp = httpPostForm(t, aliceClient, ts.URL, ts.URL+"/posts/"+post.ID+"/unbookmark", url.Values{})
+	wantStatus(t, resp, http.StatusSeeOther)
+	resp.Body.Close()
+	resp = httpGet(t, aliceClient, ts.URL+"/bookmarks")
+	wantStatus(t, resp, http.StatusOK)
+	if body := bodyOf(t, resp); !strings.Contains(body, "You have not bookmarked any posts yet.") {
+		t.Fatalf("bookmark removal failed: %s", body)
+	}
+
+	if err := st.BookmarkPost(alice.ID, post.ID); err != nil {
+		t.Fatalf("bookmark post: %v", err)
+	}
+	if err := st.DeletePost(post.ID); err != nil {
+		t.Fatalf("delete post: %v", err)
+	}
+	if ok, err := st.IsBookmarked(alice.ID, post.ID); err != nil || ok {
+		t.Fatalf("bookmark survived post deletion: ok=%v err=%v", ok, err)
+	}
+}
+
+func TestNewSinceLastVisit(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	hash, err := auth.HashPassword("correct horse battery")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	alice := &store.User{Username: "alice", DisplayName: "Alice", PasswordHash: hash}
+	bob := &store.User{Username: "bob", DisplayName: "Bob", PasswordHash: hash}
+	for _, u := range []*store.User{alice, bob} {
+		if err := st.CreateUser(u); err != nil {
+			t.Fatalf("create %s: %v", u.Username, err)
+		}
+	}
+	oldTime := "2020-01-01T00:00:00Z"
+	oldPost := &store.Post{AuthorID: bob.ID, Title: "Old post", BodyMD: "old", BodyHTML: "<p>old</p>", CreatedAt: oldTime, UpdatedAt: oldTime}
+	commentPost := &store.Post{AuthorID: bob.ID, Title: "Comment post", BodyMD: "comments", BodyHTML: "<p>comments</p>", CreatedAt: oldTime, UpdatedAt: oldTime}
+	for _, p := range []*store.Post{oldPost, commentPost} {
+		if err := st.CreatePost(p); err != nil {
+			t.Fatalf("create post: %v", err)
+		}
+	}
+	future := time.Now().UTC().Add(2 * time.Hour).Format(time.RFC3339)
+	bobComment := &store.Comment{PostID: commentPost.ID, AuthorID: bob.ID, BodyMD: "Bob new comment", BodyHTML: "<p>Bob new comment</p>", CreatedAt: future}
+	aliceComment := &store.Comment{PostID: commentPost.ID, AuthorID: alice.ID, BodyMD: "Alice own comment", BodyHTML: "<p>Alice own comment</p>", CreatedAt: future}
+	for _, c := range []*store.Comment{bobComment, aliceComment} {
+		if err := st.CreateComment(c); err != nil {
+			t.Fatalf("create comment: %v", err)
+		}
+	}
+
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	first := loginClient(t, ts.URL, "alice", "correct horse battery")
+	resp := httpGet(t, first, ts.URL+"/")
+	wantStatus(t, resp, http.StatusOK)
+	if body := bodyOf(t, resp); !strings.Contains(postRow(body, "Old post"), `>new</span>`) {
+		t.Fatalf("first visit did not mark the old post new: %s", body)
+	}
+
+	newTime := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
+	newPost := &store.Post{AuthorID: bob.ID, Title: "New post", BodyMD: "new", BodyHTML: "<p>new</p>", CreatedAt: newTime, UpdatedAt: newTime}
+	if err := st.CreatePost(newPost); err != nil {
+		t.Fatalf("create new post: %v", err)
+	}
+
+	second := loginClient(t, ts.URL, "alice", "correct horse battery")
+	resp = httpGet(t, second, ts.URL+"/")
+	wantStatus(t, resp, http.StatusOK)
+	body := bodyOf(t, resp)
+	if row := postRow(body, "Old post"); row == "" || strings.Contains(row, `>new</span>`) {
+		t.Fatalf("old post still marked new on a later visit: %s", row)
+	}
+	if row := postRow(body, "New post"); !strings.Contains(row, `>new</span>`) {
+		t.Fatalf("new post was not marked new: %s", row)
+	}
+	if row := postRow(body, "Comment post"); !strings.Contains(row, `>1 new</span>`) {
+		t.Fatalf("new comment count missing: %s", row)
+	}
+
+	resp = httpGet(t, second, ts.URL+"/posts/"+commentPost.ID)
+	wantStatus(t, resp, http.StatusOK)
+	body = bodyOf(t, resp)
+	if block := commentBlock(body, "Bob new comment"); !strings.Contains(block, `class="tag new"`) {
+		t.Fatalf("Bob's new comment was not marked: %s", block)
+	}
+	if block := commentBlock(body, "Alice own comment"); strings.Contains(block, `class="tag new"`) {
+		t.Fatalf("Alice's own comment was marked new: %s", block)
 	}
 }

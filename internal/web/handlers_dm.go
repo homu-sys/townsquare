@@ -106,6 +106,15 @@ func (s *Server) directMessagePeer(w http.ResponseWriter, r *http.Request, u *st
 		s.renderError(w, r, http.StatusNotFound, "No such person lives here.")
 		return nil, false
 	}
+	blocked, err := s.store.IsBlockedEither(u.ID, peer.ID)
+	if err != nil {
+		s.renderError(w, r, http.StatusInternalServerError, "Could not check that conversation.")
+		return nil, false
+	}
+	if blocked {
+		s.renderError(w, r, http.StatusForbidden, "Direct messages are blocked between you and this person.")
+		return nil, false
+	}
 	return peer, true
 }
 
@@ -133,7 +142,7 @@ func (s *Server) renderMessageThread(w http.ResponseWriter, r *http.Request, sta
 }
 
 func (s *Server) adminBlockedDMs(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requireAdmin(w, r); !ok {
+	if _, ok := s.requireModerator(w, r); !ok {
 		return
 	}
 	const limit = 50
@@ -159,7 +168,7 @@ func (s *Server) adminBlockedDMs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) adminBlockedDMDelete(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requireAdmin(w, r); !ok {
+	if _, ok := s.requireModerator(w, r); !ok {
 		return
 	}
 	if !s.checkCSRF(w, r) {

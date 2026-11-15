@@ -1,20 +1,22 @@
 {{template "header" .}}
-<h2>Admin</h2>
+<h2>{{.Heading}}</h2>
 {{template "admin_nav" .}}
 
-<h3>Attack mode</h3>
+{{if .IsAdmin}}<h3>Attack mode</h3>
 {{if .Lockdown}}
-<p class="error">This website is under attack. Only IPs recorded before attack mode was enabled, and signed-in admins, may enter.</p>
+<p class="error">This website is under attack. Only IPs recorded before attack mode was enabled, and signed-in staff may enter.</p>
 <form method="post" action="/admin/lockdown/disable" class="inline">
 {{template "csrf" .}}
 <button type="submit" class="button">Turn off attack mode</button>
 </form>
 {{else}}
-<p class="small">Attack mode turns on automatically during a flood. You can also turn it on here. While it is on, everyone except previously recorded IPs and signed-in admins sees a message that the site is under attack.</p>
+<p class="small">Attack mode turns on automatically during a flood. You can also turn it on here. While it is on, everyone except previously recorded IPs and signed-in staff sees a message that the site is under attack.</p>
 <form method="post" action="/admin/lockdown" class="inline">
 {{template "csrf" .}}
 <button type="submit" class="button">Turn on attack mode</button>
 </form>
+{{end}}
+
 {{end}}
 
 <h3>Statistics</h3>
@@ -23,7 +25,8 @@
   <tr><th>Active admins</th><td>{{.Stats.ActiveAdmins}}</td></tr>
   <tr><th>Posts</th><td>{{.Stats.Posts}}</td></tr>
   <tr><th>Comments</th><td>{{.Stats.Comments}}</td></tr>
-  <tr><th>Unique IPs</th><td>{{.Stats.Hits}}</td></tr>
+  <tr><th>Page views</th><td>{{.Stats.Hits}}</td></tr>
+  <tr><th>Unique IPs</th><td>{{.Stats.Visitors}}</td></tr>
 </table>
 
 <h3>Recent posts</h3>
@@ -33,7 +36,7 @@
 <p class="empty">No posts.</p>
 {{end}}
 
-<h3>Recent users</h3>
+{{if .IsAdmin}}<h3>Recent users</h3>
 {{if .Users}}
 <table class="people">
   <tr><th>Username</th><th>Display name</th><th>Joined</th></tr>
@@ -50,5 +53,5 @@
 {{end}}
 
 <h3>Invites</h3>
-<p><a href="/admin/invites">Manage invites &rarr;</a></p>
+<p><a href="/admin/invites">Manage invites &rarr;</a></p>{{end}}
 {{template "footer" .}}

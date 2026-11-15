@@ -392,3 +392,31 @@ func TestLockdownAndRecordedVisitors(t *testing.T) {
 		t.Fatalf("lockdown after disable = %v, err = %v", on, err)
 	}
 }
+
+func TestOpenMigratesOwnerRole(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	st, err := Open(path)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	admin := &User{Username: "admin", DisplayName: "Admin", PasswordHash: "hash", Role: RoleAdmin}
+	if err := st.CreateUser(admin); err != nil {
+		t.Fatalf("create admin: %v", err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+
+	st, err = Open(path)
+	if err != nil {
+		t.Fatalf("reopen store: %v", err)
+	}
+	defer st.Close()
+	u, err := st.GetUserByUsername("admin")
+	if err != nil {
+		t.Fatalf("get admin: %v", err)
+	}
+	if u.Role != RoleOwner {
+		t.Fatalf("role = %q, want owner", u.Role)
+	}
+}

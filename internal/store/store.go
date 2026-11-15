@@ -27,6 +27,13 @@ type Store struct {
 	db *sql.DB
 }
 
+const (
+	RoleUser      = "user"
+	RoleModerator = "moderator"
+	RoleAdmin     = "admin"
+	RoleOwner     = "owner"
+)
+
 type User struct {
 	ID           string
 	Username     string
@@ -39,6 +46,22 @@ type User struct {
 	Disabled     bool
 	CreatedAt    string
 	APITokenHash string
+}
+
+func (u *User) IsOwner() bool {
+	return u != nil && u.Role == RoleOwner
+}
+
+func (u *User) IsAdmin() bool {
+	return u != nil && (u.Role == RoleAdmin || u.Role == RoleOwner)
+}
+
+func (u *User) IsModerator() bool {
+	return u != nil && (u.Role == RoleModerator || u.IsAdmin())
+}
+
+func (u *User) IsStaff() bool {
+	return u.IsModerator()
 }
 
 type Post struct {
@@ -54,6 +77,8 @@ type Post struct {
 	CreatedAt         string
 	UpdatedAt         string
 	CommentCount      int
+	New               bool
+	NewComments       int
 }
 
 type Comment struct {
@@ -134,6 +159,23 @@ type NewsItem struct {
 	CreatedAt string
 }
 
+type RemotePost struct {
+	Instance          string
+	ID                string
+	SiteName          string
+	URL               string
+	Title             string
+	BodyMD            string
+	AuthorUsername    string
+	AuthorDisplayName string
+	AuthorURL         string
+	Channel           string
+	CreatedAt         string
+	UpdatedAt         string
+	CommentCount      int
+	FetchedAt         string
+}
+
 const schema = `
 CREATE TABLE IF NOT EXISTS users (
   id            TEXT PRIMARY KEY,
@@ -198,6 +240,32 @@ CREATE TABLE IF NOT EXISTS direct_messages (
   block_reason TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS user_mutes (
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  muted_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(user_id, muted_id)
+);
+
+CREATE TABLE IF NOT EXISTS user_blocks (
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  blocked_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(user_id, blocked_id)
+);
+
+CREATE TABLE IF NOT EXISTS bookmarks (
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  post_id    TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(user_id, post_id)
+);
+
+CREATE TABLE IF NOT EXISTS user_visits (
+  user_id      TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  last_seen_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS post_tags (
   post_id TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
   tag     TEXT NOT NULL,
@@ -230,6 +298,24 @@ CREATE TABLE IF NOT EXISTS news (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS remote_posts (
+  instance            TEXT NOT NULL,
+  id                  TEXT NOT NULL,
+  site_name           TEXT NOT NULL,
+  url                 TEXT NOT NULL,
+  title               TEXT NOT NULL,
+  body_md             TEXT NOT NULL,
+  author_username     TEXT NOT NULL,
+  author_display_name TEXT NOT NULL,
+  author_url          TEXT NOT NULL,
+  channel             TEXT NOT NULL,
+  created_at          TEXT NOT NULL,
+  updated_at          TEXT NOT NULL,
+  comment_count       INTEGER NOT NULL DEFAULT 0,
+  fetched_at          TEXT NOT NULL,
+  PRIMARY KEY(instance, id)
+);
+
 CREATE TABLE IF NOT EXISTS recovery_codes (
   code_hash  TEXT PRIMARY KEY,
   user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -253,10 +339,14 @@ CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id);
 CREATE INDEX IF NOT EXISTS idx_password_resets_expiry ON password_resets(expires_at);
 CREATE INDEX IF NOT EXISTS idx_direct_messages_sender ON direct_messages(sender_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_direct_messages_recipient ON direct_messages(recipient_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_user_blocks_blocked ON user_blocks(blocked_id, user_id);
+CREATE INDEX IF NOT EXISTS idx_bookmarks_user ON bookmarks(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_bookmarks_post ON bookmarks(post_id);
 CREATE INDEX IF NOT EXISTS idx_direct_messages_blocked ON direct_messages(blocked, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_reactions_target ON reactions(target_type, target_id);
 CREATE INDEX IF NOT EXISTS idx_post_tags_tag ON post_tags(tag, post_id);
 CREATE INDEX IF NOT EXISTS idx_news_created ON news(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_remote_posts_created ON remote_posts(created_at DESC);
 `
 
 func Open(path string) (*Store, error) {
@@ -283,6 +373,10 @@ func Open(path string) (*Store, error) {
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
+	}
+	if err := migrateOwnerRole(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate owner role: %w", err)
 	}
 	if err := migrateOptionalEmail(db); err != nil {
 		db.Close()
@@ -437,6 +531,27 @@ func migratePostChannel(db *sql.DB) error {
 	return err
 }
 
+func migrateOwnerRole(db *sql.DB) error {
+	var owners int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM users WHERE role = 'owner'`).Scan(&owners); err != nil {
+		return err
+	}
+	if owners > 0 {
+		return nil
+	}
+	var id string
+	err := db.QueryRow(`SELECT id FROM users WHERE role = 'admin'
+		ORDER BY created_at ASC, id ASC LIMIT 1`).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(`UPDATE users SET role = 'owner' WHERE id = ?`, id)
+	return err
+}
+
 func migrateCommentParent(db *sql.DB) error {
 	rows, err := db.Query(`PRAGMA table_info(comments)`)
 	if err != nil {
@@ -553,7 +668,7 @@ func (s *Store) CreateFirstUser(u *User) error {
 		u.CreatedAt = Now()
 	}
 	if u.Role == "" {
-		u.Role = "admin"
+		u.Role = RoleOwner
 	}
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -655,6 +770,104 @@ func (s *Store) ListActiveUsers(limit, offset int) ([]User, error) {
 	return out, rows.Err()
 }
 
+func (s *Store) MuteUser(userID, targetID string) error {
+	if userID == "" || targetID == "" || userID == targetID {
+		return nil
+	}
+	_, err := s.db.Exec(`INSERT INTO user_mutes(user_id, muted_id, created_at)
+		VALUES (?, ?, ?) ON CONFLICT(user_id, muted_id) DO NOTHING`, userID, targetID, Now())
+	return err
+}
+
+func (s *Store) UnmuteUser(userID, targetID string) error {
+	_, err := s.db.Exec(`DELETE FROM user_mutes WHERE user_id = ? AND muted_id = ?`, userID, targetID)
+	return err
+}
+
+func (s *Store) BlockUser(userID, targetID string) error {
+	if userID == "" || targetID == "" || userID == targetID {
+		return nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT INTO user_blocks(user_id, blocked_id, created_at)
+		VALUES (?, ?, ?) ON CONFLICT(user_id, blocked_id) DO NOTHING`, userID, targetID, Now()); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM user_mutes WHERE user_id = ? AND muted_id = ?`, userID, targetID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) UnblockUser(userID, targetID string) error {
+	_, err := s.db.Exec(`DELETE FROM user_blocks WHERE user_id = ? AND blocked_id = ?`, userID, targetID)
+	return err
+}
+
+func (s *Store) IsMuted(userID, targetID string) (bool, error) {
+	return s.relationshipExists(`SELECT 1 FROM user_mutes WHERE user_id = ? AND muted_id = ?`, userID, targetID)
+}
+
+func (s *Store) IsBlocked(userID, targetID string) (bool, error) {
+	return s.relationshipExists(`SELECT 1 FROM user_blocks WHERE user_id = ? AND blocked_id = ?`, userID, targetID)
+}
+
+func (s *Store) IsBlockedEither(userA, userB string) (bool, error) {
+	if userA == "" || userB == "" {
+		return false, nil
+	}
+	return s.relationshipExists(`SELECT 1 FROM user_blocks
+		WHERE (user_id = ? AND blocked_id = ?) OR (user_id = ? AND blocked_id = ?)`,
+		userA, userB, userB, userA)
+}
+
+func (s *Store) relationshipExists(query string, args ...any) (bool, error) {
+	var one int
+	err := s.db.QueryRow(query, args...).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *Store) ListMutedUsers(userID string) ([]User, error) {
+	return s.listRelationshipUsers(`SELECT u.id, u.username, u.display_name, u.email, u.password_hash,
+		u.bio, u.avatar, u.role, u.disabled, u.created_at, u.api_token_hash
+		FROM users u JOIN user_mutes m ON m.muted_id = u.id
+		WHERE m.user_id = ? ORDER BY u.username COLLATE NOCASE ASC`, userID)
+}
+
+func (s *Store) ListBlockedUsers(userID string) ([]User, error) {
+	return s.listRelationshipUsers(`SELECT u.id, u.username, u.display_name, u.email, u.password_hash,
+		u.bio, u.avatar, u.role, u.disabled, u.created_at, u.api_token_hash
+		FROM users u JOIN user_blocks b ON b.blocked_id = u.id
+		WHERE b.user_id = ? ORDER BY u.username COLLATE NOCASE ASC`, userID)
+}
+
+func (s *Store) listRelationshipUsers(query, userID string) ([]User, error) {
+	rows, err := s.db.Query(query, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []User
+	for rows.Next() {
+		u, err := scanUser(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *u)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) UpdateProfile(id, displayName, bio string) error {
 	res, err := s.db.Exec(`UPDATE users SET display_name = ?, bio = ? WHERE id = ?`, displayName, bio, id)
 	return oneRow(res, err)
@@ -693,7 +906,9 @@ func (s *Store) SetUserDisabled(id string, disabled bool) error {
 }
 
 func (s *Store) SetUserRole(id, role string) error {
-	if role != "admin" && role != "user" {
+	switch role {
+	case RoleUser, RoleModerator, RoleAdmin:
+	default:
 		return ErrInvalid
 	}
 	res, err := s.db.Exec(`UPDATE users SET role = ? WHERE id = ?`, role, id)
@@ -834,6 +1049,60 @@ func (s *Store) UpdateNews(id, body string) error {
 func (s *Store) DeleteNews(id string) error {
 	res, err := s.db.Exec(`DELETE FROM news WHERE id = ?`, id)
 	return oneRow(res, err)
+}
+
+func (s *Store) ReplaceRemotePosts(instance string, posts []RemotePost) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM remote_posts WHERE instance = ?`, instance); err != nil {
+		return err
+	}
+	stmt, err := tx.Prepare(`INSERT INTO remote_posts
+		(instance, id, site_name, url, title, body_md, author_username, author_display_name,
+		 author_url, channel, created_at, updated_at, comment_count, fetched_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	fetchedAt := Now()
+	for i := range posts {
+		p := &posts[i]
+		if _, err := stmt.Exec(instance, p.ID, p.SiteName, p.URL, p.Title, p.BodyMD,
+			p.AuthorUsername, p.AuthorDisplayName, p.AuthorURL, p.Channel,
+			p.CreatedAt, p.UpdatedAt, p.CommentCount, fetchedAt); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *Store) ListRemotePosts(limit int) ([]RemotePost, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 20
+	}
+	rows, err := s.db.Query(`SELECT instance, id, site_name, url, title, body_md,
+		author_username, author_display_name, author_url, channel, created_at, updated_at,
+		comment_count, fetched_at
+		FROM remote_posts ORDER BY created_at DESC, instance ASC, id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []RemotePost
+	for rows.Next() {
+		var p RemotePost
+		if err := rows.Scan(&p.Instance, &p.ID, &p.SiteName, &p.URL, &p.Title, &p.BodyMD,
+			&p.AuthorUsername, &p.AuthorDisplayName, &p.AuthorURL, &p.Channel,
+			&p.CreatedAt, &p.UpdatedAt, &p.CommentCount, &p.FetchedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) RegisterWithInvite(code string, u *User) error {
@@ -1056,6 +1325,9 @@ const postSelect = `SELECT p.id, p.author_id, u.username, u.display_name, u.role
 	(SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id) AS comment_count
 	FROM posts p JOIN users u ON u.id = p.author_id`
 
+const visiblePostAuthor = `p.author_id NOT IN (SELECT muted_id FROM user_mutes WHERE user_id = ?)
+	AND p.author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE user_id = ?)`
+
 func scanPost(row interface{ Scan(...any) error }) (*Post, error) {
 	var p Post
 	err := row.Scan(&p.ID, &p.AuthorID, &p.AuthorUsername, &p.AuthorDisplayName, &p.AuthorRole, &p.Channel,
@@ -1081,12 +1353,20 @@ func (s *Store) ListPosts(limit, offset int) ([]Post, error) {
 	return s.listPosts(` WHERE p.channel <> 'nsfw'`, limit, offset)
 }
 
+func (s *Store) ListPostsFor(viewerID string, limit, offset int) ([]Post, error) {
+	if viewerID == "" {
+		return s.ListPosts(limit, offset)
+	}
+	return s.listPosts(` WHERE p.channel <> 'nsfw' AND `+visiblePostAuthor, limit, offset, viewerID, viewerID)
+}
+
 func (s *Store) ListAllPosts(limit, offset int) ([]Post, error) {
 	return s.listPosts(``, limit, offset)
 }
 
-func (s *Store) listPosts(where string, limit, offset int) ([]Post, error) {
-	rows, err := s.db.Query(postSelect+where+` ORDER BY p.created_at DESC LIMIT ? OFFSET ?`, limit, offset)
+func (s *Store) listPosts(where string, limit, offset int, args ...any) ([]Post, error) {
+	queryArgs := append(args, limit, offset)
+	rows, err := s.db.Query(postSelect+where+` ORDER BY p.created_at DESC LIMIT ? OFFSET ?`, queryArgs...)
 	if err != nil {
 		return nil, err
 	}
@@ -1118,6 +1398,53 @@ func (s *Store) ListUserPosts(userID string, limit, offset int) ([]Post, error) 
 		out = append(out, *p)
 	}
 	return out, rows.Err()
+}
+
+func (s *Store) ListBookmarks(userID string, includeNSFW bool, limit, offset int) ([]Post, error) {
+	where := ` JOIN bookmarks b ON b.post_id = p.id
+		WHERE b.user_id = ?
+			AND p.author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE user_id = ?)`
+	args := []any{userID, userID}
+	if !includeNSFW {
+		where += ` AND p.channel <> 'nsfw'`
+	}
+	args = append(args, limit, offset)
+	rows, err := s.db.Query(postSelect+where+`
+		ORDER BY b.created_at DESC, p.created_at DESC LIMIT ? OFFSET ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Post
+	for rows.Next() {
+		p, err := scanPost(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *p)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) BookmarkPost(userID, postID string) error {
+	if userID == "" || postID == "" {
+		return ErrInvalid
+	}
+	_, err := s.db.Exec(`INSERT INTO bookmarks(user_id, post_id, created_at)
+		VALUES (?, ?, ?) ON CONFLICT(user_id, post_id) DO NOTHING`, userID, postID, Now())
+	return err
+}
+
+func (s *Store) UnbookmarkPost(userID, postID string) error {
+	_, err := s.db.Exec(`DELETE FROM bookmarks WHERE user_id = ? AND post_id = ?`, userID, postID)
+	return err
+}
+
+func (s *Store) IsBookmarked(userID, postID string) (bool, error) {
+	if userID == "" || postID == "" {
+		return false, nil
+	}
+	return s.relationshipExists(`SELECT 1 FROM bookmarks WHERE user_id = ? AND post_id = ?`, userID, postID)
 }
 
 func (s *Store) UpdatePost(id, title, bodyMD, bodyHTML, channel string) error {
@@ -1166,6 +1493,9 @@ const commentSelect = `SELECT c.id, c.post_id, c.parent_id, c.author_id, u.usern
 	c.body_md, c.body_html, c.created_at
 	FROM comments c JOIN users u ON u.id = c.author_id`
 
+const visibleCommentAuthor = `c.author_id NOT IN (SELECT muted_id FROM user_mutes WHERE user_id = ?)
+	AND c.author_id NOT IN (SELECT blocked_id FROM user_blocks WHERE user_id = ?)`
+
 func scanComment(row interface{ Scan(...any) error }) (*Comment, error) {
 	var c Comment
 	var parentID sql.NullString
@@ -1182,7 +1512,17 @@ func scanComment(row interface{ Scan(...any) error }) (*Comment, error) {
 }
 
 func (s *Store) ListComments(postID string) ([]Comment, error) {
-	rows, err := s.db.Query(commentSelect+` WHERE c.post_id = ? ORDER BY c.created_at ASC`, postID)
+	return s.ListCommentsFor(postID, "")
+}
+
+func (s *Store) ListCommentsFor(postID, viewerID string) ([]Comment, error) {
+	where := ` WHERE c.post_id = ?`
+	args := []any{postID}
+	if viewerID != "" {
+		where += ` AND ` + visibleCommentAuthor
+		args = append(args, viewerID, viewerID)
+	}
+	rows, err := s.db.Query(commentSelect+where+` ORDER BY c.created_at ASC`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1194,6 +1534,38 @@ func (s *Store) ListComments(postID string) ([]Comment, error) {
 			return nil, err
 		}
 		out = append(out, *c)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) CountNewComments(postIDs []string, viewerID, since string) (map[string]int, error) {
+	out := make(map[string]int)
+	if len(postIDs) == 0 || viewerID == "" {
+		return out, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(postIDs)), ",")
+	args := make([]any, 0, len(postIDs)+2)
+	for _, id := range postIDs {
+		args = append(args, id)
+	}
+	where := ` WHERE post_id IN (` + placeholders + `) AND author_id <> ?`
+	args = append(args, viewerID)
+	if since != "" {
+		where += ` AND created_at > ?`
+		args = append(args, since)
+	}
+	rows, err := s.db.Query(`SELECT post_id, COUNT(*) FROM comments`+where+` GROUP BY post_id`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var postID string
+		var count int
+		if err := rows.Scan(&postID, &count); err != nil {
+			return nil, err
+		}
+		out[postID] = count
 	}
 	return out, rows.Err()
 }
@@ -1300,8 +1672,10 @@ func (s *Store) ListConversations(userID string) ([]Conversation, error) {
 		FROM direct_messages m
 		JOIN users u ON u.id = CASE WHEN m.sender_id = ? THEN m.recipient_id ELSE m.sender_id END
 		WHERE m.blocked = 0 AND (m.sender_id = ? OR m.recipient_id = ?)
+			AND u.id NOT IN (SELECT blocked_id FROM user_blocks WHERE user_id = ?)
+			AND u.id NOT IN (SELECT user_id FROM user_blocks WHERE blocked_id = ?)
 		GROUP BY u.id, u.username, u.display_name
-		ORDER BY last_at DESC`, userID, userID, userID)
+		ORDER BY last_at DESC`, userID, userID, userID, userID, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -1435,9 +1809,19 @@ func (s *Store) ListPostTags(postID string) ([]string, error) {
 }
 
 func (s *Store) ListPostsByTag(tag string, limit, offset int) ([]Post, error) {
-	rows, err := s.db.Query(postSelect+`
-		JOIN post_tags t ON t.post_id = p.id
-		WHERE t.tag = ? AND p.channel <> 'nsfw' ORDER BY p.created_at DESC LIMIT ? OFFSET ?`, tag, limit, offset)
+	return s.ListPostsByTagFor("", tag, limit, offset)
+}
+
+func (s *Store) ListPostsByTagFor(viewerID, tag string, limit, offset int) ([]Post, error) {
+	where := ` JOIN post_tags t ON t.post_id = p.id
+		WHERE t.tag = ? AND p.channel <> 'nsfw'`
+	args := []any{tag}
+	if viewerID != "" {
+		where += ` AND ` + visiblePostAuthor
+		args = append(args, viewerID, viewerID)
+	}
+	args = append(args, limit, offset)
+	rows, err := s.db.Query(postSelect+where+` ORDER BY p.created_at DESC LIMIT ? OFFSET ?`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1474,8 +1858,18 @@ func (s *Store) ListTags(limit int) ([]TagCount, error) {
 }
 
 func (s *Store) ListPostsByChannel(channel string, limit, offset int) ([]Post, error) {
-	rows, err := s.db.Query(postSelect+` WHERE p.channel = ? ORDER BY p.created_at DESC LIMIT ? OFFSET ?`,
-		channel, limit, offset)
+	return s.ListPostsByChannelFor("", channel, limit, offset)
+}
+
+func (s *Store) ListPostsByChannelFor(viewerID, channel string, limit, offset int) ([]Post, error) {
+	where := ` WHERE p.channel = ?`
+	args := []any{channel}
+	if viewerID != "" {
+		where += ` AND ` + visiblePostAuthor
+		args = append(args, viewerID, viewerID)
+	}
+	args = append(args, limit, offset)
+	rows, err := s.db.Query(postSelect+where+` ORDER BY p.created_at DESC LIMIT ? OFFSET ?`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1542,6 +1936,48 @@ func (s *Store) SetLockdown(enabled bool) error {
 	return err
 }
 
+func (s *Store) StartVisit(userID string) (string, error) {
+	if userID == "" {
+		return "", ErrInvalid
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+
+	var previous string
+	err = tx.QueryRow(`SELECT last_seen_at FROM user_visits WHERE user_id = ?`, userID).Scan(&previous)
+	if errors.Is(err, sql.ErrNoRows) {
+		previous = ""
+	} else if err != nil {
+		return "", err
+	}
+	if _, err := tx.Exec(`INSERT INTO user_visits(user_id, last_seen_at) VALUES (?, ?)
+		ON CONFLICT(user_id) DO UPDATE SET last_seen_at = excluded.last_seen_at`, userID, Now()); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+	return previous, nil
+}
+
+func (s *Store) GetLastSeen(userID string) (string, error) {
+	if userID == "" {
+		return "", ErrInvalid
+	}
+	var at string
+	err := s.db.QueryRow(`SELECT last_seen_at FROM user_visits WHERE user_id = ?`, userID).Scan(&at)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return at, nil
+}
+
 func (s *Store) Visit(ip string) (int64, error) {
 	visitorID := visitorID(ip)
 
@@ -1557,11 +1993,11 @@ func (s *Store) Visit(ip string) (int64, error) {
 		if _, err := tx.Exec(`INSERT INTO visitors(id, created_at) VALUES (?, ?)`, visitorID, Now()); err != nil {
 			return 0, err
 		}
-		if _, err := tx.Exec(`INSERT INTO meta(key, value) VALUES ('hits', '1')
-			ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)`); err != nil {
-			return 0, err
-		}
 	} else if err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(`INSERT INTO meta(key, value) VALUES ('hits', '1')
+		ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT)`); err != nil {
 		return 0, err
 	}
 
@@ -1577,6 +2013,12 @@ func (s *Store) Visit(ip string) (int64, error) {
 	}
 	n, _ := strconv.ParseInt(raw, 10, 64)
 	return n, nil
+}
+
+func (s *Store) CountVisitors() (int64, error) {
+	var n int64
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM visitors`).Scan(&n)
+	return n, err
 }
 
 func (s *Store) GetHits() (int64, error) {
@@ -1602,13 +2044,14 @@ func (s *Store) Stats() (users, posts, comments int, err error) {
 
 func (s *Store) CountActiveAdmins() (int, error) {
 	var n int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM users WHERE role = 'admin' AND disabled = 0`).Scan(&n)
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM users
+		WHERE role IN ('admin', 'owner') AND disabled = 0`).Scan(&n)
 	return n, err
 }
 
 func (s *Store) CountActiveAdminsExcluding(id string) (int, error) {
 	var n int
 	err := s.db.QueryRow(`SELECT COUNT(*) FROM users
-		WHERE role = 'admin' AND disabled = 0 AND id <> ?`, id).Scan(&n)
+		WHERE role IN ('admin', 'owner') AND disabled = 0 AND id <> ?`, id).Scan(&n)
 	return n, err
 }

@@ -38,9 +38,9 @@
   </div>
 </div>
 {{template "nav" .}}
+<main class="content">
 {{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
 {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
-<main class="content">
 {{end}}
 
 {{define "nav"}}
@@ -51,10 +51,11 @@
     <a href="/tags">[ tags ]</a>
     <a href="/channels">[ channels ]</a>
     {{if .LoggedIn}}<a href="/new">[ new post ]</a>
-    <a href="/messages">[ messages ]</a>{{end}}
+    <a href="/messages">[ messages ]</a>
+    <a href="/bookmarks">[ bookmarks ]</a>{{end}}
     <a href="/about">[ about ]</a>
-    <a href="/api/v1/site">[ api ]</a>
-    {{if .IsAdmin}}<a href="/admin">[ admin ]</a>{{end}}
+    <a href="/api">[ api ]</a>
+    {{if .IsAdmin}}<a href="/admin">[ admin ]</a>{{else if .IsModerator}}<a href="/admin">[ moderation ]</a>{{end}}
   </span>
   <span class="nav-right">
     {{if .LoggedIn}}

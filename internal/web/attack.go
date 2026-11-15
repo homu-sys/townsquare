@@ -109,10 +109,11 @@ func (s *Server) attackMode(next http.Handler) http.Handler {
 
 func (s *Server) attackAllowed(r *http.Request) bool {
 	p := r.URL.Path
-	if p == "/healthz" || p == "/favicon.ico" || strings.HasPrefix(p, "/static/") {
+	if p == "/healthz" || p == "/favicon.ico" || p == "/federation/latest.json" ||
+		strings.HasPrefix(p, "/static/") {
 		return true
 	}
-	if u := userFrom(r); u != nil && u.Role == "admin" {
+	if u := userFrom(r); u != nil && u.IsStaff() {
 		return true
 	}
 	ip := s.clientIP(r)

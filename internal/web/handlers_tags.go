@@ -27,12 +27,13 @@ func (s *Server) tagView(w http.ResponseWriter, r *http.Request) {
 	}
 	const limit = 20
 	pageNum := pageParam(r)
-	posts, err := s.store.ListPostsByTag(tag, limit+1, (pageNum-1)*limit)
+	posts, err := s.store.ListPostsByTagFor(viewerID(r), tag, limit+1, (pageNum-1)*limit)
 	if err != nil {
 		s.renderError(w, r, http.StatusInternalServerError, "Could not read posts for that hashtag.")
 		return
 	}
 	posts, hasNext := trimPage(posts, limit)
+	s.markPosts(r, posts)
 
 	base := "/tags/" + url.PathEscape(tag)
 	page := s.newPage(r)

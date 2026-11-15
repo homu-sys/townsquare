@@ -1,5 +1,7 @@
 {{template "header" .}}
-<h2>{{.Profile.DisplayName}}{{if eq .Profile.Role "admin"}} <span class="tag">admin</span>{{end}}</h2>
+<h2>{{.Profile.DisplayName}}{{template "role_badge" .Profile.Role}}</h2>
+{{if .Blocked}}<p class="flash">You blocked this person. Their posts are hidden while the block is active.</p>
+{{else if .Muted}}<p class="flash">You muted this person. Their posts are hidden from your feeds.</p>{{end}}
 <div class="profile">
   <div class="profile-photo">
     {{if .Profile.Avatar}}<img class="avatar avatar-large" src="data:image/png;base64,{{.Profile.Avatar}}" alt="{{.Profile.DisplayName}}" width="128" height="128">{{else}}<div class="avatar avatar-large avatar-empty" aria-hidden="true"></div>{{end}}
@@ -10,7 +12,18 @@
     <p><a href="/users/{{.Profile.Username}}/feed.xml">RSS feed</a></p>
     {{if .Profile.Disabled}}<p class="danger">This account is disabled.</p>{{end}}
     {{if .User}}{{if eq .User.ID .Profile.ID}}<p><a href="/settings">Edit your profile</a></p>
-    {{else}}{{if not .Profile.Disabled}}<p><a href="/messages/{{.Profile.Username}}">Send a message</a></p>{{end}}{{end}}{{end}}
+    {{else}}
+    {{if .Blocked}}<p class="small">You blocked this person.</p>
+    {{else if not .Profile.Disabled}}<p><a href="/messages/{{.Profile.Username}}">Send a message</a></p>{{end}}
+    {{if not .Profile.Disabled}}
+    <p class="relationship-actions">
+      {{if .Muted}}<form method="post" action="/users/{{.Profile.Username}}/unmute" class="inline">{{template "csrf" .}}<button type="submit" class="link">Unmute</button></form>
+      {{else}}<form method="post" action="/users/{{.Profile.Username}}/mute" class="inline">{{template "csrf" .}}<button type="submit" class="link">Mute</button></form>{{end}}
+      {{if .Blocked}}<form method="post" action="/users/{{.Profile.Username}}/unblock" class="inline">{{template "csrf" .}}<button type="submit" class="link">Unblock</button></form>
+      {{else}}<form method="post" action="/users/{{.Profile.Username}}/block" class="inline">{{template "csrf" .}}<button type="submit" class="link danger">Block</button></form>{{end}}
+    </p>
+    {{end}}
+    {{end}}{{end}}
   </div>
   <div class="profile-bio">
     {{if .Profile.Bio}}{{nl2br .Profile.Bio}}{{else}}<em>No bio yet.</em>{{end}}
@@ -18,7 +31,9 @@
 </div>
 <hr>
 <h3>Posts by {{.Profile.DisplayName}}</h3>
-{{if .Posts}}
+{{if .Blocked}}
+<p class="empty">Their posts are hidden while you have them blocked.</p>
+{{else if .Posts}}
 {{template "post_table" .}}
 {{template "pager" .}}
 {{else}}

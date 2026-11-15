@@ -46,6 +46,12 @@ func main() {
 		log.Fatalf("setup web server: %v", err)
 	}
 
+	fedCtx, fedCancel := context.WithCancel(context.Background())
+	defer fedCancel()
+	if len(cfg.FederationInstances) > 0 {
+		go srv.RunFederation(fedCtx)
+	}
+
 	httpSrv := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           srv.Handler(),
@@ -70,6 +76,7 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
+	fedCancel()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

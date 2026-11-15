@@ -18,7 +18,10 @@ func (s *Server) showRecoveryCodes(w http.ResponseWriter, r *http.Request, u *st
 	page.Heading = "Save your recovery codes"
 	page.User = u
 	page.LoggedIn = true
-	page.IsAdmin = u.Role == "admin"
+	page.IsAdmin = u.IsAdmin()
+	page.IsOwner = u.IsOwner()
+	page.IsModerator = u.IsModerator()
+	page.IsStaff = u.IsStaff()
 	if csrf != "" {
 		page.CSRFToken = csrf
 	}

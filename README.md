@@ -5,7 +5,7 @@ profiles, posts, comments, invite-only membership, an admin panel, and a public 
 The look is deliberately Web 1.0: tables, serif type, blue links, a visitor counter, and
 only a tiny local script for the emoji picker.
 
-Version 1 is a single instance with a lightweight pull-based federation feed between
+Version 2 is a single instance with a lightweight pull-based federation feed between
 independently hosted towns. Full ActivityPub federation is on the roadmap.
 
 ![Townsquare screenshot](docs/screenshot.png)

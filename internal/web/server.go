@@ -13,7 +13,7 @@ import (
 	"townsquare/internal/store"
 )
 
-const Version = "1.0"
+const Version = "2.0"
 
 type Server struct {
 	cfg             config.Config

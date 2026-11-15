@@ -149,3 +149,7 @@ live copy, use `sqlite3 townsquare.db ".backup backup.db"`.
 ## License
 
 AGPL-3.0-or-later. See [LICENSE](LICENSE).
+
+## Uneeded
+
+Readme is Ai-Generated

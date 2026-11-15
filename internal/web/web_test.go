@@ -17,7 +17,6 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1271,10 +1270,10 @@ func TestVisitorCounterCountsUniqueIPs(t *testing.T) {
 		return bodyOf(t, resp)
 	}
 
-	for i := 1; i <= 2; i++ {
+	for i := 0; i < 2; i++ {
 		body := getAs("198.51.100.1")
-		if !strings.Contains(body, `You are visitor <span class="digits">`+strconv.Itoa(i)+`</span>`) {
-			t.Fatalf("page view %d from same IP not counted: %s", i, body)
+		if !strings.Contains(body, `You are visitor <span class="digits">1</span>`) {
+			t.Fatalf("same IP changed the visitor count: %s", body)
 		}
 	}
 	hits, err := st.GetHits()
@@ -1293,8 +1292,8 @@ func TestVisitorCounterCountsUniqueIPs(t *testing.T) {
 	}
 
 	body := getAs("203.0.113.9")
-	if !strings.Contains(body, `You are visitor <span class="digits">3</span>`) {
-		t.Fatalf("second IP not counted as a page view: %s", body)
+	if !strings.Contains(body, `You are visitor <span class="digits">2</span>`) {
+		t.Fatalf("second IP not counted as a visitor: %s", body)
 	}
 	visitors, err = st.CountVisitors()
 	if err != nil || visitors != 2 {

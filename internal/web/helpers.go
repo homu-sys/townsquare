@@ -71,7 +71,7 @@ type PageData struct {
 	CSRFToken string
 	Flash     string
 	Error     string
-	Hits      int64
+	Visitors  int64
 	Lockdown  bool
 
 	Posts         []store.Post
@@ -248,9 +248,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, status int, name
 	if page.Flash == "" {
 		page.Flash = s.popFlash(w, r)
 	}
-	if page.Hits == 0 {
-		page.Hits, _ = s.store.GetHits()
-	}
+	page.Visitors, _ = s.store.CountVisitors()
 
 	var buf bytes.Buffer
 	if err := s.templates.ExecuteTemplate(&buf, name, page); err != nil {

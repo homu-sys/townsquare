@@ -372,6 +372,13 @@ func TestLockdownAndRecordedVisitors(t *testing.T) {
 	if err := st.RecordVisitor("198.51.100.1"); err != nil {
 		t.Fatalf("record visitor again: %v", err)
 	}
+	var storedIP string
+	if err := st.db.QueryRow(`SELECT ip FROM visitors WHERE id = ?`, visitorID("198.51.100.1")).Scan(&storedIP); err != nil {
+		t.Fatalf("read stored visitor ip: %v", err)
+	}
+	if storedIP != "198.51.100.1" {
+		t.Fatalf("stored visitor ip = %q, want raw IP", storedIP)
+	}
 	if seen, err := st.IsRecordedVisitor("198.51.100.1"); err != nil || !seen {
 		t.Fatalf("recorded = %v, err = %v", seen, err)
 	}
@@ -418,5 +425,48 @@ func TestOpenMigratesOwnerRole(t *testing.T) {
 	}
 	if u.Role != RoleOwner {
 		t.Fatalf("role = %q, want owner", u.Role)
+	}
+}
+
+func TestOpenMigratesVisitorIP(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatalf("open old db: %v", err)
+	}
+	if _, err := db.Exec(`CREATE TABLE visitors (
+		id         TEXT PRIMARY KEY,
+		created_at TEXT NOT NULL
+	)`); err != nil {
+		t.Fatalf("create old visitors table: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO visitors(id, created_at)
+		VALUES ('old', '2026-01-01T00:00:00Z')`); err != nil {
+		t.Fatalf("insert old visitor: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close old db: %v", err)
+	}
+
+	st, err := Open(path)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer st.Close()
+	var ip string
+	if err := st.db.QueryRow(`SELECT ip FROM visitors WHERE id = 'old'`).Scan(&ip); err != nil {
+		t.Fatalf("read migrated visitor ip: %v", err)
+	}
+	if ip != "" {
+		t.Fatalf("legacy visitor ip = %q, want empty", ip)
+	}
+	if err := st.RecordVisitor("203.0.113.9"); err != nil {
+		t.Fatalf("record new visitor: %v", err)
+	}
+	if err := st.db.QueryRow(`SELECT ip FROM visitors WHERE id = ?`, visitorID("203.0.113.9")).Scan(&ip); err != nil {
+		t.Fatalf("read new visitor ip: %v", err)
+	}
+	if ip != "203.0.113.9" {
+		t.Fatalf("new visitor ip = %q", ip)
 	}
 }

@@ -284,6 +284,7 @@ CREATE TABLE IF NOT EXISTS reactions (
 
 CREATE TABLE IF NOT EXISTS visitors (
   id         TEXT PRIMARY KEY,
+  ip         TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
 );
 
@@ -373,6 +374,10 @@ func Open(path string) (*Store, error) {
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
+	}
+	if err := migrateVisitorIP(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate visitor ip column: %w", err)
 	}
 	if err := migrateOwnerRole(db); err != nil {
 		db.Close()
@@ -528,6 +533,31 @@ func migratePostChannel(db *sql.DB) error {
 		}
 	}
 	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_posts_channel ON posts(channel, created_at DESC)`)
+	return err
+}
+
+func migrateVisitorIP(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(visitors)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull, pk int
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		if name == "ip" {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = db.Exec(`ALTER TABLE visitors ADD COLUMN ip TEXT NOT NULL DEFAULT ''`)
 	return err
 }
 
@@ -1897,8 +1927,8 @@ func visitorID(ip string) string {
 }
 
 func (s *Store) RecordVisitor(ip string) error {
-	_, err := s.db.Exec(`INSERT INTO visitors(id, created_at) VALUES (?, ?)
-		ON CONFLICT(id) DO NOTHING`, visitorID(ip), Now())
+	_, err := s.db.Exec(`INSERT INTO visitors(id, ip, created_at) VALUES (?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET ip = excluded.ip`, visitorID(ip), ip, Now())
 	return err
 }
 
@@ -1987,13 +2017,8 @@ func (s *Store) Visit(ip string) (int64, error) {
 	}
 	defer tx.Rollback()
 
-	var one int
-	err = tx.QueryRow(`SELECT 1 FROM visitors WHERE id = ?`, visitorID).Scan(&one)
-	if errors.Is(err, sql.ErrNoRows) {
-		if _, err := tx.Exec(`INSERT INTO visitors(id, created_at) VALUES (?, ?)`, visitorID, Now()); err != nil {
-			return 0, err
-		}
-	} else if err != nil {
+	if _, err := tx.Exec(`INSERT INTO visitors(id, ip, created_at) VALUES (?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET ip = excluded.ip`, visitorID, ip, Now()); err != nil {
 		return 0, err
 	}
 	if _, err := tx.Exec(`INSERT INTO meta(key, value) VALUES ('hits', '1')

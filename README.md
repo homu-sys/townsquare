@@ -21,6 +21,10 @@ independently hosted towns.
 - Public read API, Bearer-token write API, RSS feeds, and Open Graph metadata
 - SQLite storage (WAL); a single Go binary with no external services
 
+## Images
+
+![Image 1](imgs/Control-V.png)
+
 ## Quick start
 
 Requires Go 1.27+.

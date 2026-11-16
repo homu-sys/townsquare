@@ -1255,20 +1255,21 @@ func TestVisitorCounterCountsUniqueIPs(t *testing.T) {
 	defer ts.Close()
 
 	c := newTestClient(t)
-	getAs := func(ip string) string {
+	getPathAs := func(ip, target string) string {
 		t.Helper()
-		req, err := http.NewRequest(http.MethodGet, ts.URL+"/", nil)
+		req, err := http.NewRequest(http.MethodGet, ts.URL+target, nil)
 		if err != nil {
 			t.Fatalf("new request: %v", err)
 		}
 		req.Header.Set("X-Forwarded-For", ip)
 		resp, err := c.Do(req)
 		if err != nil {
-			t.Fatalf("GET as %s: %v", ip, err)
+			t.Fatalf("GET %s as %s: %v", target, ip, err)
 		}
 		wantStatus(t, resp, http.StatusOK)
 		return bodyOf(t, resp)
 	}
+	getAs := func(ip string) string { return getPathAs(ip, "/") }
 
 	for i := 0; i < 2; i++ {
 		body := getAs("198.51.100.1")
@@ -1298,6 +1299,15 @@ func TestVisitorCounterCountsUniqueIPs(t *testing.T) {
 	visitors, err = st.CountVisitors()
 	if err != nil || visitors != 2 {
 		t.Fatalf("unique visitors = %d, err = %v, want 2", visitors, err)
+	}
+
+	body = getPathAs("192.0.2.55", "/about")
+	if !strings.Contains(body, `You are visitor <span class="digits">3</span>`) {
+		t.Fatalf("new IP visiting another page was not counted: %s", body)
+	}
+	visitors, err = st.CountVisitors()
+	if err != nil || visitors != 3 {
+		t.Fatalf("unique visitors = %d, err = %v, want 3", visitors, err)
 	}
 }
 

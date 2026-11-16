@@ -2,7 +2,6 @@ package web
 
 import (
 	"errors"
-	"log"
 	"net/http"
 	"net/url"
 
@@ -24,9 +23,6 @@ func (s *Server) home(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := s.store.Visit(s.clientIP(r)); err != nil {
-		log.Printf("record visit: %v", err)
-	}
 	news, _ := s.store.ListNews()
 	const limit = 20
 	pageNum := pageParam(r)

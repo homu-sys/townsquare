@@ -57,6 +57,19 @@ func (s *Server) loadSession(next http.Handler) http.Handler {
 	})
 }
 
+func (s *Server) trackVisitor(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if (r.Method != http.MethodGet && r.Method != http.MethodHead) || isSessionlessRequest(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if _, err := s.store.Visit(s.clientIP(r)); err != nil {
+			log.Printf("record visit: %v", err)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *Server) visitMarkers(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if userFrom(r) == nil || (r.Method != http.MethodGet && r.Method != http.MethodHead) {

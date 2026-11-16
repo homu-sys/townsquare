@@ -69,6 +69,7 @@ func New(cfg config.Config, st *store.Store) (*Server, error) {
 
 func (s *Server) Handler() http.Handler {
 	var h http.Handler = s.mux
+	h = s.trackVisitor(h)
 	h = s.attackMode(h)
 	h = s.visitMarkers(h)
 	h = s.loadSession(h)
